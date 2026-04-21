@@ -15,6 +15,8 @@ Open `http://localhost:3000`.
 
 - API route: `GET /api/xtracker/[handle]/hourly`
 - Groups posts by `date x hour`
+- Combines `GET /api/users/[handle]` with `GET /api/users/[handle]/posts`
+- Exposes both selected-range post count and all-time `_count.posts`
 - Supports custom `start`, `end`, and `timezone`
 - Heatmap UI with daily totals and intensity scale
 

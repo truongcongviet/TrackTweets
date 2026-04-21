@@ -30,7 +30,16 @@ export type HeatmapRow = {
   total: number;
 };
 
-export type HourlyHeatmapResponse = {
+export type TrackingWindow = {
+  id: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  marketLink: string | null;
+  isActive: boolean;
+};
+
+export type HourlyHeatmapBase = {
   handle: string;
   timezone: string;
   start: string;
@@ -38,4 +47,16 @@ export type HourlyHeatmapResponse = {
   maxHourlyCount: number;
   grandTotal: number;
   rows: HeatmapRow[];
+};
+
+export type HourlyHeatmapResponse = HourlyHeatmapBase & {
+  name: string | null;
+  avatarUrl: string | null;
+  lastSync: string | null;
+  allTimePostCount: number;
+  allTimeOriginalCount: number;
+  allTimeRetweetCount: number;
+  allTimeAverageLength: number;
+  rangePostCount: number;
+  trackings: TrackingWindow[];
 };

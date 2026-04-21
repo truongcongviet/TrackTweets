@@ -1,13 +1,16 @@
 :root {
   color-scheme: dark;
-  --bg: #07101c;
-  --panel: rgba(11, 20, 34, 0.9);
-  --panel-strong: rgba(10, 18, 31, 0.98);
-  --line: rgba(126, 154, 194, 0.18);
+  --bg: #06070b;
+  --panel: rgba(10, 14, 23, 0.9);
+  --panel-strong: rgba(5, 9, 16, 0.98);
+  --line: rgba(155, 169, 197, 0.2);
+  --line-strong: rgba(236, 240, 248, 0.82);
   --text: #f4f7fb;
-  --muted: #9fb4cf;
+  --muted: #98a4ba;
   --accent: #ff8f3d;
   --accent-soft: rgba(255, 143, 61, 0.12);
+  --panel-black: rgba(7, 10, 16, 0.94);
+  --panel-blue: rgba(12, 19, 33, 0.9);
 }
 
 * {
@@ -19,9 +22,9 @@ body {
   margin: 0;
   min-height: 100%;
   background:
-    radial-gradient(circle at top left, rgba(255, 143, 61, 0.16), transparent 22%),
-    radial-gradient(circle at top right, rgba(97, 154, 255, 0.14), transparent 24%),
-    linear-gradient(180deg, #0b1423 0%, #06111c 48%, #08111a 100%);
+    radial-gradient(circle at top left, rgba(255, 143, 61, 0.09), transparent 18%),
+    radial-gradient(circle at top right, rgba(82, 143, 255, 0.12), transparent 22%),
+    linear-gradient(180deg, #090b10 0%, #05070b 48%, #04050a 100%);
   color: var(--text);
   font-family:
     "IBM Plex Sans",
@@ -47,13 +50,230 @@ button {
 }
 
 .hero-card,
-.metric-card,
+.overview-card,
+.market-card,
 .table-card {
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(14, 24, 40, 0.94), rgba(8, 15, 28, 0.98));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+.overview-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.overview-card {
+  position: relative;
+  min-height: 126px;
+  padding: 24px;
+  border-radius: 16px;
+  border-color: rgba(234, 239, 246, 0.78);
+  background:
+    radial-gradient(circle at top right, rgba(133, 182, 255, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(8, 10, 14, 0.98), rgba(9, 10, 13, 0.96));
+}
+
+.overview-label {
+  margin: 0;
+  color: rgba(242, 245, 249, 0.92);
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+.overview-value {
+  margin: 18px 0 6px;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.overview-helper {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.market-card {
+  padding: 14px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(6, 10, 18, 0.98), rgba(4, 7, 12, 0.98)),
+    linear-gradient(135deg, rgba(64, 121, 255, 0.08), transparent 38%);
+}
+
+.market-tabs {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(7, 11, 20, 0.96);
+  overflow-x: auto;
+}
+
+.market-tab {
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(170, 180, 198, 0.92);
+  padding: 10px 16px;
+  font: inherit;
+  font-size: 0.98rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.market-tab:hover {
+  background: rgba(52, 71, 105, 0.42);
+  color: #f6f8fb;
+}
+
+.market-tab--active {
+  background: linear-gradient(180deg, rgba(46, 61, 92, 0.98), rgba(28, 39, 65, 0.98));
+  color: #f6f8fb;
+}
+
+.market-tab--placeholder {
+  cursor: default;
+}
+
+.market-body {
+  padding: 18px 10px 4px;
+}
+
+.market-body-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.market-title {
+  margin: 0 0 4px;
+  color: rgba(147, 159, 183, 0.9);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.market-subtitle {
+  margin: 0;
+  color: #eef2f7;
+  font-size: 1rem;
+}
+
+.market-sync {
+  margin: 0;
+  color: rgba(147, 159, 183, 0.9);
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.market-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-bottom: 18px;
+}
+
+.market-metric-block--right {
+  text-align: right;
+}
+
+.market-metric-label {
+  margin: 0 0 8px;
+  color: rgba(147, 159, 183, 0.9);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.market-metric-value {
+  margin: 0;
+  font-size: clamp(2.3rem, 5vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+}
+
+.market-metric-value--mono {
+  font-family:
+    "IBM Plex Mono",
+    "SFMono-Regular",
+    monospace;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+}
+
+.market-progress-wrap {
+  padding-top: 6px;
+}
+
+.market-progress-bar {
+  position: relative;
+  height: 32px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(26, 35, 52, 0.88), rgba(13, 19, 31, 0.92));
+}
+
+.market-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px 0 0 999px;
+  background: linear-gradient(
+    90deg,
+    #ff4a4f 0%,
+    #ff7b2c 20%,
+    #ffbf1f 43%,
+    #c8f02f 60%,
+    #98cc8a 75%,
+    #65b0ff 100%
+  );
+}
+
+.market-progress-meta {
+  position: absolute;
+  inset: 0 14px 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #0f1726;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.market-progress-percent,
+.market-progress-pace {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(240, 244, 250, 0.8);
+}
+
+.market-days {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+  color: rgba(99, 111, 133, 0.92);
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+}
+
+.market-empty {
+  padding: 28px 16px 18px;
+  color: var(--muted);
 }
 
 .hero-card {
@@ -85,6 +305,12 @@ button {
   max-width: 60ch;
   color: var(--muted);
   line-height: 1.65;
+}
+
+.hero-status {
+  margin: 16px 0 0;
+  color: #dbe3ef;
+  font-size: 0.95rem;
 }
 
 .control-panel {
@@ -132,42 +358,6 @@ button {
 .control-panel button:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.metric-card {
-  padding: 18px 18px 16px;
-}
-
-.metric-label {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-}
-
-.metric-value {
-  margin: 12px 0 8px;
-  font-size: 1.9rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-}
-
-.metric-value--small {
-  font-size: 1.1rem;
-  line-height: 1.4;
-}
-
-.metric-helper {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.5;
 }
 
 .table-card {
@@ -270,12 +460,12 @@ button {
     padding-inline: 12px;
   }
 
-  .hero-card {
-    grid-template-columns: 1fr;
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .hero-card {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -285,16 +475,48 @@ button {
   }
 
   .hero-card,
+  .market-card,
   .table-card {
     padding: 16px;
+  }
+
+  .overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .control-panel {
     grid-template-columns: 1fr;
   }
 
-  .summary-grid {
+  .market-body-header,
+  .market-metrics {
     grid-template-columns: 1fr;
+    text-align: left;
+  }
+
+  .market-body-header {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .market-metric-block--right,
+  .market-sync {
+    text-align: left;
+  }
+
+  .market-progress-bar {
+    height: 42px;
+  }
+
+  .market-progress-meta {
+    inset: auto 10px 8px auto;
+    gap: 8px;
+    font-size: 0.78rem;
+  }
+
+  .market-days {
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
   }
 
   .table-header {

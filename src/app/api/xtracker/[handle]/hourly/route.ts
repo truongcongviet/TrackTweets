@@ -1,13 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aggregatePostsByHour } from "@/lib/hourly-aggregation";
-import { fetchXTrackerPosts } from "@/lib/xtracker";
+import { fetchXTrackerLifetimeStats, fetchXTrackerPosts, fetchXTrackerUserSummary } from "@/lib/xtracker";
 
 function isValidIsoDate(value: string | null) {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
+function isValidIsoDateTime(value: string | null) {
+  return Boolean(value && !Number.isNaN(Date.parse(value)));
+}
+
 function sanitizeHandle(rawHandle: string) {
   return rawHandle.replace(/^@+/, "").trim().toLowerCase();
+}
+
+function matchesTrackingRange(
+  tracking: { startDate: string; endDate: string },
+  start: string,
+  end: string
+) {
+  return tracking.startDate.slice(0, 10) === start && tracking.endDate.slice(0, 10) === end;
+}
+
+function getDefaultTracking<T extends { startDate: string; endDate: string }>(trackings: T[]) {
+  const now = Date.now();
+  const liveTracking = trackings.find((tracking) => new Date(tracking.endDate).getTime() >= now);
+
+  if (liveTracking) {
+    return liveTracking;
+  }
+
+  return trackings.at(-1) ?? null;
 }
 
 export async function GET(
@@ -19,6 +42,8 @@ export async function GET(
   const { searchParams } = request.nextUrl;
   const start = searchParams.get("start");
   const end = searchParams.get("end");
+  const startAt = searchParams.get("startAt");
+  const endAt = searchParams.get("endAt");
   const timezone = searchParams.get("tz") ?? "Asia/Ho_Chi_Minh";
 
   if (!handle) {
@@ -34,6 +59,14 @@ export async function GET(
 
   const safeStart = start as string;
   const safeEnd = end as string;
+  const hasProvidedExactWindow = startAt !== null || endAt !== null;
+
+  if (hasProvidedExactWindow && (!isValidIsoDateTime(startAt) || !isValidIsoDateTime(endAt))) {
+    return NextResponse.json(
+      { message: "Query params startAt and endAt must be valid ISO datetimes" },
+      { status: 400 }
+    );
+  }
 
   try {
     Intl.DateTimeFormat("en-US", { timeZone: timezone });
@@ -42,14 +75,51 @@ export async function GET(
   }
 
   try {
-    const timestamps = await fetchXTrackerPosts({ handle, start: safeStart, end: safeEnd });
-    const payload = aggregatePostsByHour({
+    const userSummary = await fetchXTrackerUserSummary(handle);
+    const matchingTracking =
+      userSummary.trackings.find((tracking) => matchesTrackingRange(tracking, safeStart, safeEnd)) ?? null;
+    const defaultTracking = getDefaultTracking(userSummary.trackings);
+    const resolvedStartAt = startAt ?? matchingTracking?.startDate ?? defaultTracking?.startDate ?? null;
+    const resolvedEndAt = endAt ?? matchingTracking?.endDate ?? defaultTracking?.endDate ?? null;
+    const hasExactWindow = resolvedStartAt !== null && resolvedEndAt !== null;
+    const [localPostsResult, exactPostsResult, lifetimeStats] = await Promise.all([
+      fetchXTrackerPosts({
+        handle,
+        start: safeStart,
+        end: safeEnd,
+      }),
+      hasExactWindow
+        ? fetchXTrackerPosts({
+            handle,
+            start: safeStart,
+            end: safeEnd,
+            startAt: resolvedStartAt,
+            endAt: resolvedEndAt,
+          })
+        : Promise.resolve(null),
+      fetchXTrackerLifetimeStats({ handle, lastSync: userSummary.lastSync }),
+    ]);
+
+    const heatmap = aggregatePostsByHour({
       handle,
       start: safeStart,
       end: safeEnd,
       timezone,
-      timestamps,
+      timestamps: localPostsResult.timestamps,
     });
+
+    const payload = {
+      ...heatmap,
+      name: userSummary.name,
+      avatarUrl: userSummary.avatarUrl,
+      lastSync: userSummary.lastSync,
+      allTimePostCount: userSummary.allTimePostCount,
+      allTimeOriginalCount: lifetimeStats.originalPostCount,
+      allTimeRetweetCount: lifetimeStats.retweetCount,
+      allTimeAverageLength: lifetimeStats.averageLength,
+      rangePostCount: exactPostsResult?.rawCount ?? heatmap.grandTotal,
+      trackings: userSummary.trackings,
+    };
 
     return NextResponse.json(payload, {
       headers: {

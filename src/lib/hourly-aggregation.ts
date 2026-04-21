@@ -1,4 +1,4 @@
-import type { HeatmapRow, HourKey, HourlyHeatmapResponse } from "@/lib/types";
+import type { HeatmapRow, HourKey, HourlyHeatmapBase } from "@/lib/types";
 
 const HOUR_KEYS = Array.from({ length: 24 }, (_, index) =>
   String(index).padStart(2, "0")
@@ -93,7 +93,7 @@ export function aggregatePostsByHour(input: {
   end: string;
   timezone: string;
   timestamps: string[];
-}): HourlyHeatmapResponse {
+}): HourlyHeatmapBase {
   const { handle, start, end, timezone, timestamps } = input;
   const range = getDateRangeInclusive(start, end);
   const rowMap = new Map<string, HeatmapRow>(
