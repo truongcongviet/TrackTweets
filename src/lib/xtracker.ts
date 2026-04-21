@@ -1,6 +1,7 @@
 const XTRACKER_API_URL = "https://xtracker.polymarket.com/api";
 const XTRACKER_CACHE_SECONDS = 60;
 const ALL_TIME_START_DATE = "2006-01-01T00:00:00.000Z";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 type XTrackerPost = {
   id?: string | number;
@@ -37,6 +38,11 @@ type XTrackerUserPayload = {
       posts?: number;
     };
   };
+};
+
+type XTrackerTrackingsPayload = {
+  success?: boolean;
+  data?: XTrackerTrackingPayload[];
 };
 
 export type XTrackerTracking = {
@@ -111,6 +117,17 @@ function normalizeTracking(tracking: XTrackerTrackingPayload): XTrackerTracking 
     marketLink: tracking.marketLink ?? null,
     isActive: tracking.isActive ?? false,
   };
+}
+
+function isSevenDayTracking(tracking: XTrackerTracking) {
+  const startMs = Date.parse(tracking.startDate);
+  const endMs = Date.parse(tracking.endDate);
+
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
+    return false;
+  }
+
+  return Math.round((endMs - startMs) / DAY_MS) === 7;
 }
 
 function isRetweet(content: string) {
@@ -197,6 +214,25 @@ export async function fetchXTrackerUserSummary(handle: string): Promise<XTracker
       .filter((tracking): tracking is XTrackerTracking => tracking !== null)
       .sort((left, right) => left.endDate.localeCompare(right.endDate)),
   };
+}
+
+export async function fetchXTrackerTrackings(handle: string): Promise<XTrackerTracking[]> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("platform", "X");
+
+  const payload = await fetchXTrackerJson<XTrackerTrackingsPayload>({
+    pathname: `/users/${encodeURIComponent(handle)}/trackings`,
+    searchParams,
+  });
+
+  const now = Date.now();
+
+  return (payload.data ?? [])
+    .map(normalizeTracking)
+    .filter((tracking): tracking is XTrackerTracking => tracking !== null)
+    .filter((tracking) => isSevenDayTracking(tracking))
+    .filter((tracking) => Date.parse(tracking.endDate) >= now)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
 }
 
 export async function fetchXTrackerPosts(input: {

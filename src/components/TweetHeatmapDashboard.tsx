@@ -6,7 +6,6 @@ import type { HourlyHeatmapResponse, TrackingWindow } from "@/lib/types";
 
 const DEFAULT_HANDLE = "elonmusk";
 const DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh";
-const TRACKING_TAB_COUNT = 3;
 
 type HeatmapApiError = {
   message?: string;
@@ -17,8 +16,10 @@ type SubmittedRange = {
   start: string;
   end: string;
   timezone: string;
-  startAt: string | null;
-  endAt: string | null;
+};
+
+type MarketApiResponse = {
+  rangePostCount: number;
 };
 
 function formatCount(value: number) {
@@ -103,29 +104,6 @@ function matchesTrackingRange(tracking: TrackingWindow, start: string, end: stri
   return tracking.startDate.slice(0, 10) === start && tracking.endDate.slice(0, 10) === end;
 }
 
-function matchesTrackingExactRange(tracking: TrackingWindow, startAt: string | null, endAt: string | null) {
-  return tracking.startDate === startAt && tracking.endDate === endAt;
-}
-
-function findMatchingTracking(trackings: TrackingWindow[], input: {
-  start: string;
-  end: string;
-  startAt?: string | null;
-  endAt?: string | null;
-}) {
-  if (input.startAt && input.endAt) {
-    const exactMatch = trackings.find((tracking) =>
-      matchesTrackingExactRange(tracking, input.startAt ?? null, input.endAt ?? null)
-    );
-
-    if (exactMatch) {
-      return exactMatch;
-    }
-  }
-
-  return trackings.find((tracking) => matchesTrackingRange(tracking, input.start, input.end)) ?? null;
-}
-
 function getDefaultTracking(trackings: TrackingWindow[], nowMs: number) {
   const liveTracking =
     trackings.find((tracking) => new Date(tracking.endDate).getTime() >= nowMs) ?? null;
@@ -135,33 +113,6 @@ function getDefaultTracking(trackings: TrackingWindow[], nowMs: number) {
   }
 
   return trackings.at(-1) ?? null;
-}
-
-function getTrackingAnchorIndex(trackings: TrackingWindow[], selectedTracking: TrackingWindow | null, nowMs: number) {
-  if (selectedTracking) {
-    const selectedIndex = trackings.findIndex((tracking) => tracking.id === selectedTracking.id);
-    if (selectedIndex >= 0) {
-      return selectedIndex;
-    }
-  }
-
-  const liveIndex = trackings.findIndex((tracking) => new Date(tracking.endDate).getTime() >= nowMs);
-  if (liveIndex >= 0) {
-    return liveIndex;
-  }
-
-  return Math.max(trackings.length - 1, 0);
-}
-
-function getVisibleTrackings(trackings: TrackingWindow[], selectedTracking: TrackingWindow | null, nowMs: number) {
-  if (trackings.length <= TRACKING_TAB_COUNT) {
-    return trackings;
-  }
-
-  const anchorIndex = getTrackingAnchorIndex(trackings, selectedTracking, nowMs);
-  const maxStart = Math.max(trackings.length - TRACKING_TAB_COUNT, 0);
-  const sliceStart = Math.min(anchorIndex, maxStart);
-  return trackings.slice(sliceStart, sliceStart + TRACKING_TAB_COUNT);
 }
 
 function getTrackingProgress(tracking: TrackingWindow, nowMs: number) {
@@ -232,13 +183,14 @@ export function TweetHeatmapDashboard() {
     start: defaultRange.start,
     end: defaultRange.end,
     timezone: DEFAULT_TIMEZONE,
-    startAt: null,
-    endAt: null,
   });
   const [data, setData] = useState<HourlyHeatmapResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+  const [marketCount, setMarketCount] = useState<number | null>(null);
+  const [marketLoading, setMarketLoading] = useState(false);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -260,11 +212,6 @@ export function TweetHeatmapDashboard() {
         end: submitted.end,
         tz: submitted.timezone,
       });
-
-      if (submitted.startAt && submitted.endAt) {
-        params.set("startAt", submitted.startAt);
-        params.set("endAt", submitted.endAt);
-      }
 
       try {
         const response = await fetch(
@@ -312,19 +259,73 @@ export function TweetHeatmapDashboard() {
 
   const selectedTracking = useMemo(() => {
     if (!data) return null;
-    return (
-      findMatchingTracking(data.trackings, {
-        start: submitted.start,
-        end: submitted.end,
-        startAt: submitted.startAt,
-        endAt: submitted.endAt,
-      }) ?? getDefaultTracking(data.trackings, nowMs)
-    );
-  }, [data, nowMs, submitted.end, submitted.endAt, submitted.start, submitted.startAt]);
+    return data.trackings.find((tracking) => tracking.id === selectedMarketId) ?? null;
+  }, [data, selectedMarketId]);
 
-  const visibleTrackings = useMemo(() => {
-    return getVisibleTrackings(data?.trackings ?? [], selectedTracking, nowMs);
-  }, [data, nowMs, selectedTracking]);
+  useEffect(() => {
+    if (!data) return;
+
+    setSelectedMarketId((current) => {
+      if (current && data.trackings.some((tracking) => tracking.id === current)) {
+        return current;
+      }
+
+      return getDefaultTracking(data.trackings, Date.now())?.id ?? null;
+    });
+  }, [data]);
+
+  useEffect(() => {
+    if (!data || !selectedTracking) {
+      setMarketCount(null);
+      setMarketLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const currentTracking = selectedTracking;
+    const currentHandle = data.handle;
+
+    async function loadMarketCount() {
+      setMarketLoading(true);
+
+      const params = new URLSearchParams({
+        startAt: currentTracking.startDate,
+        endAt: currentTracking.endDate,
+      });
+
+      try {
+        const response = await fetch(
+          `/api/xtracker/${encodeURIComponent(currentHandle)}/market?${params.toString()}`,
+          {
+            signal: controller.signal,
+          }
+        );
+
+        const payload = (await response.json()) as MarketApiResponse | HeatmapApiError;
+
+        if (!response.ok) {
+          const message =
+            "message" in payload && typeof payload.message === "string"
+              ? payload.message
+              : "Failed to load market count";
+          throw new Error(message);
+        }
+
+        setMarketCount((payload as MarketApiResponse).rangePostCount);
+      } catch (fetchError) {
+        if (controller.signal.aborted) return;
+        setMarketCount(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setMarketLoading(false);
+        }
+      }
+    }
+
+    void loadMarketCount();
+
+    return () => controller.abort();
+  }, [data, selectedTracking]);
 
   const trackingProgress = useMemo(() => {
     if (!selectedTracking) return null;
@@ -332,13 +333,13 @@ export function TweetHeatmapDashboard() {
   }, [nowMs, selectedTracking]);
 
   const projectedPace = useMemo(() => {
-    if (!data) return 0;
+    if (marketCount === null) return 0;
     if (!trackingProgress || trackingProgress.percent <= 0 || trackingProgress.isClosed) {
-      return data.rangePostCount;
+      return marketCount;
     }
 
-    return Math.round(data.rangePostCount / (trackingProgress.percent / 100));
-  }, [data, trackingProgress]);
+    return Math.round(marketCount / (trackingProgress.percent / 100));
+  }, [marketCount, trackingProgress]);
 
   const trackingWeekdays = useMemo(() => {
     if (!selectedTracking) return [];
@@ -373,8 +374,8 @@ export function TweetHeatmapDashboard() {
 
         <section className="market-card">
           <div className="market-tabs">
-            {visibleTrackings.length > 0 ? (
-              visibleTrackings.map((tracking) => {
+            {data?.trackings.length ? (
+              data.trackings.map((tracking) => {
                 const isActive = selectedTracking?.id === tracking.id;
 
                 return (
@@ -383,14 +384,7 @@ export function TweetHeatmapDashboard() {
                     type="button"
                     className={`market-tab${isActive ? " market-tab--active" : ""}`}
                     onClick={() => {
-                      setSubmitted({
-                        handle: submitted.handle,
-                        start: submitted.start,
-                        end: submitted.end,
-                        timezone: submitted.timezone,
-                        startAt: tracking.startDate,
-                        endAt: tracking.endDate,
-                      });
+                      setSelectedMarketId(tracking.id);
                     }}
                   >
                     {formatTrackingLabel(tracking.endDate)}
@@ -415,7 +409,9 @@ export function TweetHeatmapDashboard() {
               <div className="market-metrics">
                 <div className="market-metric-block">
                   <p className="market-metric-label">Tweet Count</p>
-                  <p className="market-metric-value">{data ? formatCount(data.rangePostCount) : "--"}</p>
+                  <p className="market-metric-value">
+                    {marketLoading && marketCount === null ? "--" : marketCount !== null ? formatCount(marketCount) : "--"}
+                  </p>
                 </div>
                 <div className="market-metric-block market-metric-block--right">
                   <p className="market-metric-label">Time Left</p>
@@ -440,7 +436,9 @@ export function TweetHeatmapDashboard() {
                     <span className="market-progress-percent">
                       {trackingProgress ? `${trackingProgress.percent.toFixed(1)}%` : "--"}
                     </span>
-                    <span className="market-progress-pace">Pace: {data ? formatCount(projectedPace) : "--"}</span>
+                    <span className="market-progress-pace">
+                      Pace: {marketCount !== null ? formatCount(projectedPace) : "--"}
+                    </span>
                   </div>
                 </div>
 
@@ -481,9 +479,11 @@ export function TweetHeatmapDashboard() {
               start,
               end,
               timezone,
-              startAt: nextHandle === submitted.handle ? submitted.startAt : null,
-              endAt: nextHandle === submitted.handle ? submitted.endAt : null,
             });
+            if (nextHandle !== submitted.handle) {
+              setSelectedMarketId(null);
+              setMarketCount(null);
+            }
           }}
         >
           <label>
