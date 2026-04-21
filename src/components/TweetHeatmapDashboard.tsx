@@ -6,6 +6,7 @@ import type { HourlyHeatmapResponse, TrackingWindow } from "@/lib/types";
 
 const DEFAULT_HANDLE = "elonmusk";
 const DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh";
+const MARKET_COUNT_REFRESH_MS = 30_000;
 
 type HeatmapApiError = {
   message?: string;
@@ -297,6 +298,7 @@ export function TweetHeatmapDashboard() {
         const response = await fetch(
           `/api/xtracker/${encodeURIComponent(currentHandle)}/market?${params.toString()}`,
           {
+            cache: "no-store",
             signal: controller.signal,
           }
         );
@@ -323,8 +325,14 @@ export function TweetHeatmapDashboard() {
     }
 
     void loadMarketCount();
+    const intervalId = window.setInterval(() => {
+      void loadMarketCount();
+    }, MARKET_COUNT_REFRESH_MS);
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
   }, [data, selectedTracking]);
 
   const trackingProgress = useMemo(() => {

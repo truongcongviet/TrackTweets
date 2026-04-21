@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchXTrackerPosts } from "@/lib/xtracker";
 
+export const dynamic = "force-dynamic";
+
 function isValidIsoDateTime(value: string | null) {
   return Boolean(value && !Number.isNaN(Date.parse(value)));
 }
@@ -45,7 +47,7 @@ export async function GET(
       },
       {
         headers: {
-          "Cache-Control": "public, max-age=60, s-maxage=60, stale-while-revalidate=300",
+          "Cache-Control": "no-store",
         },
       }
     );
