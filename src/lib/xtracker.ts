@@ -56,6 +56,7 @@ export type XTrackerTracking = {
 
 export type XTrackerPostRecord = {
   content: string;
+  id: string | null;
   timestamp: string;
 };
 
@@ -193,6 +194,8 @@ async function fetchXTrackerPostsByWindow(input: {
 
       return {
         content: extractContent(post),
+        id:
+          typeof post.id === "string" || typeof post.id === "number" ? String(post.id) : null,
         timestamp,
       };
     })
