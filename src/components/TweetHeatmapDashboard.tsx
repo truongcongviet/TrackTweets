@@ -357,29 +357,6 @@ export function TweetHeatmapDashboard() {
   return (
     <main className="page-shell">
       <section className="overview-stack">
-        <div className="overview-grid">
-          <article className="overview-card">
-            <p className="overview-label">Total Posts</p>
-            <p className="overview-value">{data ? formatCount(data.allTimePostCount) : "--"}</p>
-            <p className="overview-helper">Total tweets</p>
-          </article>
-          <article className="overview-card">
-            <p className="overview-label">Original Tweets</p>
-            <p className="overview-value">{data ? formatCount(data.allTimeOriginalCount) : "--"}</p>
-            <p className="overview-helper">Non-retweets</p>
-          </article>
-          <article className="overview-card">
-            <p className="overview-label">Retweets</p>
-            <p className="overview-value">{data ? formatCount(data.allTimeRetweetCount) : "--"}</p>
-            <p className="overview-helper">Shared content</p>
-          </article>
-          <article className="overview-card">
-            <p className="overview-label">Avg Length</p>
-            <p className="overview-value">{data ? formatCount(data.allTimeAverageLength) : "--"}</p>
-            <p className="overview-helper">Characters per tweet</p>
-          </article>
-        </div>
-
         <section className="market-card">
           <div className="market-tabs">
             {data?.trackings.length ? (
@@ -463,59 +440,6 @@ export function TweetHeatmapDashboard() {
             </div>
           )}
         </section>
-      </section>
-
-      <section className="hero-card">
-        <div className="hero-copy">
-          <p className="eyebrow">TrackTweet</p>
-          <h1>{data?.name ?? "Elon Musk"} hourly post tracker</h1>
-          <p className="hero-description">
-            Fetch raw posts from Polymarket XTracker, derive overview metrics from the full history,
-            then render a local-time heatmap for the currently selected market window.
-          </p>
-          <p className="hero-status">{statusLabel}</p>
-        </div>
-
-        <form
-          className="control-panel"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const nextHandle = handle.trim().replace(/^@+/, "") || DEFAULT_HANDLE;
-
-            setSubmitted({
-              handle: nextHandle,
-              start,
-              end,
-              timezone,
-            });
-            if (nextHandle !== submitted.handle) {
-              setSelectedMarketId(null);
-              setMarketCount(null);
-            }
-          }}
-        >
-          <label>
-            <span>Handle</span>
-            <input value={handle} onChange={(event) => setHandle(event.target.value)} />
-          </label>
-
-          <label>
-            <span>Start</span>
-            <input type="date" value={start} onChange={(event) => setStart(event.target.value)} />
-          </label>
-
-          <label>
-            <span>End</span>
-            <input type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
-          </label>
-
-          <label>
-            <span>Timezone</span>
-            <input value={timezone} onChange={(event) => setTimezone(event.target.value)} />
-          </label>
-
-          <button type="submit">Refresh heatmap</button>
-        </form>
       </section>
 
       <section className="table-card">
