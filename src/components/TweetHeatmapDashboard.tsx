@@ -7,6 +7,9 @@ import type { HourKey, HourlyHeatmapResponse, TrackingWindow } from "@/lib/types
 const DEFAULT_HANDLE = "elonmusk";
 const DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh";
 const MARKET_COUNT_REFRESH_MS = 30_000;
+const CLASSIC_HEATMAP_WINDOW_DAYS = 90 as const;
+const TIMELINE_HEATMAP_WINDOW_DAYS = 30 as const;
+const DEFAULT_CHART_WINDOW_DAYS = 90 as const;
 
 type HeatmapApiError = {
   message?: string;
@@ -62,6 +65,15 @@ type HeatmapHourRow = {
   values: number[];
 };
 
+const CHART_WINDOW_OPTIONS = [7, 30, 90] as const;
+type ChartWindowDays = (typeof CHART_WINDOW_OPTIONS)[number];
+
+type DailyChartRow = {
+  date: string;
+  label: string;
+  total: number;
+};
+
 type HeatmapView = "classic" | "timeline";
 
 const DAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -74,6 +86,11 @@ const HOUR_KEY_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 const TWEET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
+});
+const DAY_CHART_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "numeric",
+  day: "numeric",
+  timeZone: "UTC",
 });
 
 function formatCount(value: number) {
@@ -124,7 +141,7 @@ function formatTrackingLabel(value: string) {
 function getDefaultRange() {
   const end = new Date();
   const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 29);
+  start.setUTCDate(start.getUTCDate() - (CLASSIC_HEATMAP_WINDOW_DAYS - 1));
 
   return {
     start: formatDateInput(start),
@@ -177,22 +194,6 @@ function getClassicCellStyle(value: number, max: number) {
   };
 }
 
-function getInclusiveDayCount(start: string, end: string) {
-  const startDate = new Date(`${start}T00:00:00Z`);
-  const endDate = new Date(`${end}T00:00:00Z`);
-
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    return 0;
-  }
-
-  const diffMs = endDate.getTime() - startDate.getTime();
-  if (diffMs < 0) {
-    return 0;
-  }
-
-  return Math.floor(diffMs / 86_400_000) + 1;
-}
-
 function formatDayHeader(dateKey: string) {
   const date = new Date(`${dateKey}T00:00:00Z`);
   const parts = DAY_HEADER_FORMATTER.formatToParts(date);
@@ -207,6 +208,35 @@ function formatAverage(value: number) {
   return value.toFixed(1);
 }
 
+function getTrailingDateRange(end: string, days: number) {
+  const endDate = new Date(`${end}T00:00:00Z`);
+
+  if (Number.isNaN(endDate.getTime())) {
+    return { end, start: end };
+  }
+
+  const startDate = new Date(endDate);
+  startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+
+  return {
+    end: formatDateInput(endDate),
+    start: formatDateInput(startDate),
+  };
+}
+
+function getChartMax(maxValue: number) {
+  if (maxValue <= 0) return 1;
+  return Math.ceil(maxValue * 2) / 2;
+}
+
+function getChartTicks(chartMax: number) {
+  const tickCount = 5;
+
+  return Array.from({ length: tickCount + 1 }, (_, index) => {
+    return chartMax - (chartMax / tickCount) * index;
+  });
+}
+
 function formatTweetTime(value: string | null) {
   if (!value) return "Unknown time";
 
@@ -216,6 +246,33 @@ function formatTweetTime(value: string | null) {
   }
 
   return TWEET_TIME_FORMATTER.format(date);
+}
+
+function formatHourChartLabel(hour: HourKey) {
+  const numericHour = Number(hour);
+
+  if (numericHour === 0) return "12 AM";
+  if (numericHour < 12) return `${numericHour} AM`;
+  if (numericHour === 12) return "12 PM";
+  return `${numericHour - 12} PM`;
+}
+
+function formatDayChartLabel(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateKey.slice(5);
+  }
+
+  return DAY_CHART_LABEL_FORMATTER.format(date);
+}
+
+function getDayChartLabelStep(count: number) {
+  if (count > 75) return 10;
+  if (count > 45) return 7;
+  if (count > 30) return 5;
+  if (count > 14) return 3;
+  return 1;
 }
 
 function formatRelativeTime(value: string | null, nowMs: number) {
@@ -400,16 +457,15 @@ function getTrackingWeekdays(tracking: TrackingWindow) {
 
 export function TweetHeatmapDashboard() {
   const defaultRange = useMemo(() => getDefaultRange(), []);
-  const [handle, setHandle] = useState(DEFAULT_HANDLE);
-  const [start, setStart] = useState(defaultRange.start);
-  const [end, setEnd] = useState(defaultRange.end);
-  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
-  const [submitted, setSubmitted] = useState<SubmittedRange>({
-    handle: DEFAULT_HANDLE,
-    start: defaultRange.start,
-    end: defaultRange.end,
-    timezone: DEFAULT_TIMEZONE,
-  });
+  const submitted = useMemo<SubmittedRange>(
+    () => ({
+      handle: DEFAULT_HANDLE,
+      start: defaultRange.start,
+      end: defaultRange.end,
+      timezone: DEFAULT_TIMEZONE,
+    }),
+    [defaultRange.end, defaultRange.start]
+  );
   const [data, setData] = useState<HourlyHeatmapResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -421,6 +477,10 @@ export function TweetHeatmapDashboard() {
   const [recentPosts, setRecentPosts] = useState<XTrackerRecentPost[]>([]);
   const [postsError, setPostsError] = useState<string | null>(null);
   const [postsLoading, setPostsLoading] = useState(false);
+  const [chartWindowDays, setChartWindowDays] = useState<ChartWindowDays>(DEFAULT_CHART_WINDOW_DAYS);
+  const [chartData, setChartData] = useState<HourlyHeatmapResponse | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [chartLoading, setChartLoading] = useState(false);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -533,6 +593,68 @@ export function TweetHeatmapDashboard() {
     return () => controller.abort();
   }, [activeHeatmapView, submitted.end, submitted.handle, submitted.start]);
 
+  const chartRange = useMemo(() => {
+    return getTrailingDateRange(submitted.end, chartWindowDays);
+  }, [chartWindowDays, submitted.end]);
+
+  const chartUsesMainRange = submitted.start === chartRange.start && submitted.end === chartRange.end;
+
+  useEffect(() => {
+    if (chartUsesMainRange) {
+      setChartData(null);
+      setChartError(null);
+      setChartLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadChartData() {
+      setChartLoading(true);
+      setChartError(null);
+
+      const params = new URLSearchParams({
+        end: chartRange.end,
+        start: chartRange.start,
+        tz: submitted.timezone,
+      });
+
+      try {
+        const response = await fetch(
+          `/api/xtracker/${encodeURIComponent(submitted.handle)}/hourly?${params.toString()}`,
+          {
+            signal: controller.signal,
+          }
+        );
+
+        const payload = (await response.json()) as HourlyHeatmapResponse | HeatmapApiError;
+
+        if (!response.ok) {
+          const message =
+            "message" in payload && typeof payload.message === "string"
+              ? payload.message
+              : "Failed to load chart data";
+          throw new Error(message);
+        }
+
+        setChartData(payload as HourlyHeatmapResponse);
+      } catch (fetchError) {
+        if (controller.signal.aborted) return;
+        const message = fetchError instanceof Error ? fetchError.message : "Failed to load chart data";
+        setChartError(message);
+        setChartData(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setChartLoading(false);
+        }
+      }
+    }
+
+    void loadChartData();
+
+    return () => controller.abort();
+  }, [chartRange.end, chartRange.start, chartUsesMainRange, submitted.handle, submitted.timezone]);
+
   const statusLabel = useMemo(() => {
     if (loading) return "Syncing latest posts from XTracker...";
     if (error) return error;
@@ -641,6 +763,15 @@ export function TweetHeatmapDashboard() {
     return [...data.rows].sort((left, right) => left.date.localeCompare(right.date));
   }, [data]);
 
+  const chartSource = chartUsesMainRange ? data : chartData;
+  const chartSourceLoading = chartUsesMainRange ? loading : chartLoading;
+  const chartSourceError = chartUsesMainRange ? error : chartError;
+
+  const chartChronologicalRows = useMemo(() => {
+    if (!chartSource) return [];
+    return [...chartSource.rows].sort((left, right) => left.date.localeCompare(right.date));
+  }, [chartSource]);
+
   const dayColumns = useMemo<HeatmapDayColumn[]>(() => {
     return chronologicalRows.map((row, index) => {
       const previousTotal = index > 0 ? chronologicalRows[index - 1].total : null;
@@ -656,9 +787,28 @@ export function TweetHeatmapDashboard() {
     });
   }, [chronologicalRows]);
 
+  const timelineChronologicalRows = useMemo(() => {
+    return chronologicalRows.slice(-TIMELINE_HEATMAP_WINDOW_DAYS);
+  }, [chronologicalRows]);
+
+  const timelineDayColumns = useMemo<HeatmapDayColumn[]>(() => {
+    return timelineChronologicalRows.map((row, index) => {
+      const previousTotal = index > 0 ? timelineChronologicalRows[index - 1].total : null;
+      const { dayLabel, weekdayLabel } = formatDayHeader(row.date);
+
+      return {
+        date: row.date,
+        dayLabel,
+        total: row.total,
+        trend: getTrend(row.total, previousTotal),
+        weekdayLabel,
+      };
+    });
+  }, [timelineChronologicalRows]);
+
   const hourRows = useMemo<HeatmapHourRow[]>(() => {
     return HOUR_KEYS.map((hour) => {
-      const values = chronologicalRows.map((row) => row.hours[hour]);
+      const values = timelineChronologicalRows.map((row) => row.hours[hour]);
       const sum = values.reduce((accumulator, value) => accumulator + value, 0);
 
       return {
@@ -667,7 +817,15 @@ export function TweetHeatmapDashboard() {
         values,
       };
     });
-  }, [chronologicalRows]);
+  }, [timelineChronologicalRows]);
+
+  const chartDailyRows = useMemo<DailyChartRow[]>(() => {
+    return chartChronologicalRows.map((row) => ({
+      date: row.date,
+      label: formatDayChartLabel(row.date),
+      total: row.total,
+    }));
+  }, [chartChronologicalRows]);
 
   const averageDailyTotal = useMemo(() => {
     if (!dayColumns.length) return 0;
@@ -675,10 +833,61 @@ export function TweetHeatmapDashboard() {
     return total / dayColumns.length;
   }, [dayColumns]);
 
-  const tableColumnCount = useMemo(() => {
-    const selectedRangeDays = getInclusiveDayCount(submitted.start, submitted.end);
-    return Math.max(dayColumns.length, selectedRangeDays, 1) + 2;
-  }, [dayColumns.length, submitted.end, submitted.start]);
+  const timelineAverageDailyTotal = useMemo(() => {
+    if (!timelineDayColumns.length) return 0;
+    const total = timelineDayColumns.reduce((accumulator, column) => accumulator + column.total, 0);
+    return total / timelineDayColumns.length;
+  }, [timelineDayColumns]);
+
+  const averageByHourMax = useMemo(() => {
+    return hourRows.reduce((maxValue, row) => Math.max(maxValue, row.average), 0);
+  }, [hourRows]);
+
+  const averageByHourChartMax = useMemo(() => {
+    return getChartMax(averageByHourMax);
+  }, [averageByHourMax]);
+
+  const averageByHourTicks = useMemo(() => {
+    return getChartTicks(averageByHourChartMax);
+  }, [averageByHourChartMax]);
+
+  const peakAverageHour = useMemo(() => {
+    if (!hourRows.length) return null;
+
+    return hourRows.reduce((peakRow, currentRow) => {
+      if (!peakRow || currentRow.average > peakRow.average) {
+        return currentRow;
+      }
+
+      return peakRow;
+    }, hourRows[0] ?? null);
+  }, [hourRows]);
+
+  const averageByDayMax = useMemo(() => {
+    return chartDailyRows.reduce((maxValue, row) => Math.max(maxValue, row.total), 0);
+  }, [chartDailyRows]);
+
+  const averageByDayChartMax = useMemo(() => {
+    return getChartMax(averageByDayMax);
+  }, [averageByDayMax]);
+
+  const averageByDayTicks = useMemo(() => {
+    return getChartTicks(averageByDayChartMax);
+  }, [averageByDayChartMax]);
+
+  const peakAverageDay = useMemo(() => {
+    if (!chartDailyRows.length) return null;
+
+    return chartDailyRows.reduce((peakRow, currentRow) => {
+      if (!peakRow || currentRow.total > peakRow.total) {
+        return currentRow;
+      }
+
+      return peakRow;
+    }, chartDailyRows[0] ?? null);
+  }, [chartDailyRows]);
+
+  const timelineTableColumnCount = Math.max(timelineDayColumns.length, 1) + 2;
 
   const currentTimeSlot = useMemo(() => {
     return getCurrentTimeSlot(nowMs, submitted.timezone);
@@ -686,7 +895,10 @@ export function TweetHeatmapDashboard() {
 
   const classicTableColumnCount = HOUR_KEYS.length + 2;
   const activeTableColumnCount =
-    activeHeatmapView === "classic" ? classicTableColumnCount : tableColumnCount;
+    activeHeatmapView === "classic" ? classicTableColumnCount : timelineTableColumnCount;
+  const chartWindowLabel = `${chartWindowDays}D`;
+  const chartDayLabelStep = getDayChartLabelStep(chartDailyRows.length);
+  const chartDayGapPx = chartDailyRows.length > 75 ? 1 : chartDailyRows.length > 45 ? 2 : 4;
 
   return (
     <main className="page-shell">
@@ -802,77 +1014,279 @@ export function TweetHeatmapDashboard() {
               </button>
             </div>
           </div>
-          <div className="legend">
-            <span>Low</span>
-            <div className="legend-bar" />
-            <span>High</span>
+          <div className="table-header-side">
+            <div className="legend">
+              <span>Low</span>
+              <div className="legend-bar" />
+              <span>High</span>
+            </div>
           </div>
         </div>
 
         <div className={`table-scroll${activeHeatmapView === "classic" ? " table-scroll--classic" : ""}`}>
           {activeHeatmapView === "classic" ? (
             <div className="classic-layout">
-              <div className="classic-heatmap-pane">
-                <table className="heatmap-table heatmap-table--classic">
-                  <thead>
-                    <tr>
-                      <th className="classic-date-header">Date</th>
-                      {HOUR_KEYS.map((hour) => (
-                        <th key={hour} className="classic-hour-header">
-                          {hour}:00
-                        </th>
-                      ))}
-                      <th className="classic-total-header">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
+              <div className="classic-main-pane">
+                <div className="classic-heatmap-pane">
+                  <table className="heatmap-table heatmap-table--classic">
+                    <thead>
                       <tr>
-                        <td className="empty-state" colSpan={activeTableColumnCount}>
-                          Loading data...
-                        </td>
-                      </tr>
-                    ) : error ? (
-                      <tr>
-                        <td className="empty-state empty-state--error" colSpan={activeTableColumnCount}>
-                          {error}
-                        </td>
-                      </tr>
-                    ) : data && data.rows.length > 0 ? (
-                      data.rows.map((row) => (
-                        <tr key={row.date}>
-                          <th scope="row" className="classic-date-cell">
-                            {row.date.slice(5)}
+                        <th className="classic-date-header">Date</th>
+                        {HOUR_KEYS.map((hour) => (
+                          <th key={hour} className="classic-hour-header">
+                            {hour}:00
                           </th>
-                          {HOUR_KEYS.map((hour) => {
-                            const value = row.hours[hour];
-                            const isCurrentSlot =
-                              currentTimeSlot?.date === row.date && currentTimeSlot.hour === hour;
+                        ))}
+                        <th className="classic-total-header">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr>
+                          <td className="empty-state" colSpan={activeTableColumnCount}>
+                            Loading data...
+                          </td>
+                        </tr>
+                      ) : error ? (
+                        <tr>
+                          <td className="empty-state empty-state--error" colSpan={activeTableColumnCount}>
+                            {error}
+                          </td>
+                        </tr>
+                      ) : data && data.rows.length > 0 ? (
+                        data.rows.map((row) => (
+                          <tr key={row.date}>
+                            <th scope="row" className="classic-date-cell">
+                              {row.date.slice(5)}
+                            </th>
+                            {HOUR_KEYS.map((hour) => {
+                              const value = row.hours[hour];
+                              const isCurrentSlot =
+                                currentTimeSlot?.date === row.date && currentTimeSlot.hour === hour;
+
+                              return (
+                                <td key={`${row.date}-${hour}`}>
+                                  <div
+                                    className={`heatmap-cell heatmap-cell--classic${isCurrentSlot ? " heatmap-cell--active heatmap-cell--active-classic" : ""}`}
+                                    style={getClassicCellStyle(value, data.maxHourlyCount)}
+                                    title={isCurrentSlot ? "Current time slot" : undefined}
+                                  >
+                                    {value > 0 ? value : ""}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                            <td className="classic-total-cell">{formatCount(row.total)}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="empty-state" colSpan={activeTableColumnCount}>
+                            No posts found for the selected range.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!loading && !error && dayColumns.length > 0 ? (
+                  <div className="heatmap-summary-strip">
+                    <span className="heatmap-summary-label">AVG / Day</span>
+                    <strong className="heatmap-summary-value">
+                      {formatAverage(averageDailyTotal)} tweets
+                    </strong>
+                    <span className="heatmap-summary-helper">
+                      Across {formatCount(dayColumns.length)} day(s)
+                    </span>
+                  </div>
+                ) : null}
+
+                {chartSourceLoading ? (
+                  <section className="hourly-chart-card hourly-chart-card--day">
+                    <div className="hourly-chart-header">
+                      <div>
+                        <p className="eyebrow">Daily activity</p>
+                        <h3>{chartWindowLabel} Activity by Day</h3>
+                      </div>
+                      <div className="hourly-chart-controls">
+                        <label className="chart-range-control">
+                          <span>Window</span>
+                          <select
+                            value={chartWindowDays}
+                            onChange={(event) => {
+                              setChartWindowDays(Number(event.target.value) as ChartWindowDays);
+                            }}
+                          >
+                            {CHART_WINDOW_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}D
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="hourly-chart-helper">
+                          Collecting {chartWindowLabel} of posts ending {chartRange.end}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="tweets-empty-state">Loading chart data...</div>
+                  </section>
+                ) : chartSourceError ? (
+                  <section className="hourly-chart-card hourly-chart-card--day">
+                    <div className="hourly-chart-header">
+                      <div>
+                        <p className="eyebrow">Daily activity</p>
+                        <h3>{chartWindowLabel} Activity by Day</h3>
+                      </div>
+                      <div className="hourly-chart-controls">
+                        <label className="chart-range-control">
+                          <span>Window</span>
+                          <select
+                            value={chartWindowDays}
+                            onChange={(event) => {
+                              setChartWindowDays(Number(event.target.value) as ChartWindowDays);
+                            }}
+                          >
+                            {CHART_WINDOW_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}D
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="hourly-chart-helper">Range ends at {chartRange.end}</p>
+                      </div>
+                    </div>
+                    <div className="tweets-empty-state tweets-empty-state--error">{chartSourceError}</div>
+                  </section>
+                ) : chartDailyRows.length > 0 ? (
+                  <section className="hourly-chart-card hourly-chart-card--day">
+                    <div className="hourly-chart-header">
+                      <div>
+                        <p className="eyebrow">Daily activity</p>
+                        <h3>{chartWindowLabel} Activity by Day</h3>
+                      </div>
+                      <div className="hourly-chart-controls">
+                        <label className="chart-range-control">
+                          <span>Window</span>
+                          <select
+                            value={chartWindowDays}
+                            onChange={(event) => {
+                              setChartWindowDays(Number(event.target.value) as ChartWindowDays);
+                            }}
+                          >
+                            {CHART_WINDOW_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}D
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="hourly-chart-helper">
+                          From {chartWindowLabel} ending {chartRange.end}. Peak day:{" "}
+                          {peakAverageDay ? peakAverageDay.label : "--"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="hourly-chart">
+                      <div className="hourly-chart-y-axis">
+                        {averageByDayTicks.map((tickValue) => (
+                          <span key={`day-tick-${tickValue.toFixed(2)}`}>{tickValue.toFixed(1)}</span>
+                        ))}
+                      </div>
+
+                      <div className="hourly-chart-plot hourly-chart-plot--day">
+                        {averageByDayTicks.map((tickValue) => (
+                          <div
+                            key={`day-grid-${tickValue.toFixed(2)}`}
+                            className="hourly-chart-gridline"
+                            style={{
+                              bottom: `${(tickValue / averageByDayChartMax) * 100}%`,
+                            }}
+                          />
+                        ))}
+
+                        <div className="hourly-chart-day-grid">
+                          <div
+                            className="hourly-chart-bars hourly-chart-bars--day"
+                            style={{
+                              gap: `${chartDayGapPx}px`,
+                              gridTemplateColumns: `repeat(${chartDailyRows.length}, minmax(0, 1fr))`,
+                            }}
+                          >
+                            {chartDailyRows.map((row) => {
+                              const height = `${(row.total / averageByDayChartMax) * 100}%`;
+                              const isPeak = peakAverageDay?.date === row.date;
+
+                              return (
+                                <div key={row.date} className="hourly-chart-day-column">
+                                  <div className="hourly-chart-day-track">
+                                    <div
+                                      className={`hourly-chart-bar${isPeak ? " hourly-chart-bar--peak" : ""}`}
+                                      style={{ height }}
+                                      title={`${row.date}: ${row.total} tweets`}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div
+                            className="hourly-chart-day-labels"
+                            style={{
+                              gap: `${chartDayGapPx}px`,
+                              gridTemplateColumns: `repeat(${chartDailyRows.length}, minmax(0, 1fr))`,
+                            }}
+                          >
+                          {chartDailyRows.map((row, index) => {
+                            const shouldShowLabel =
+                              index === 0 ||
+                              index === chartDailyRows.length - 1 ||
+                              index % chartDayLabelStep === 0;
 
                             return (
-                              <td key={`${row.date}-${hour}`}>
-                                <div
-                                  className={`heatmap-cell heatmap-cell--classic${isCurrentSlot ? " heatmap-cell--active heatmap-cell--active-classic" : ""}`}
-                                  style={getClassicCellStyle(value, data.maxHourlyCount)}
-                                  title={isCurrentSlot ? "Current time slot" : undefined}
-                                >
-                                  {value > 0 ? value : ""}
-                                </div>
-                              </td>
+                              <span key={`${row.date}-label`} className="hourly-chart-label hourly-chart-label--day">
+                                  {shouldShowLabel ? row.label : ""}
+                              </span>
                             );
                           })}
-                          <td className="classic-total-cell">{formatCount(row.total)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td className="empty-state" colSpan={activeTableColumnCount}>
-                          No posts found for the selected range.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                ) : (
+                  <section className="hourly-chart-card hourly-chart-card--day">
+                    <div className="hourly-chart-header">
+                      <div>
+                        <p className="eyebrow">Daily activity</p>
+                        <h3>{chartWindowLabel} Activity by Day</h3>
+                      </div>
+                      <div className="hourly-chart-controls">
+                        <label className="chart-range-control">
+                          <span>Window</span>
+                          <select
+                            value={chartWindowDays}
+                            onChange={(event) => {
+                              setChartWindowDays(Number(event.target.value) as ChartWindowDays);
+                            }}
+                          >
+                            {CHART_WINDOW_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}D
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="hourly-chart-helper">Range ends at {chartRange.end}</p>
+                      </div>
+                    </div>
+                    <div className="tweets-empty-state">No chart data found for this window.</div>
+                  </section>
+                )}
               </div>
 
               <aside className="tweets-panel">
@@ -947,7 +1361,7 @@ export function TweetHeatmapDashboard() {
               <thead>
                 <tr>
                   <th className="heatmap-corner-cell">Hour</th>
-                  {dayColumns.map((column) => (
+                  {timelineDayColumns.map((column) => (
                     <th key={column.date} className="day-header-cell">
                       <span className="day-header-weekday">{column.weekdayLabel}</span>
                       <span className="day-header-date">{column.dayLabel}</span>
@@ -969,14 +1383,14 @@ export function TweetHeatmapDashboard() {
                       {error}
                     </td>
                   </tr>
-                ) : data && dayColumns.length > 0 ? (
+                ) : data && timelineDayColumns.length > 0 ? (
                   hourRows.map((row) => (
                     <tr key={row.hour}>
                       <th scope="row" className="heatmap-row-label">
                         {row.hour}:00
                       </th>
                       {row.values.map((value, index) => {
-                        const date = dayColumns[index]?.date ?? `${row.hour}-${index}`;
+                        const date = timelineDayColumns[index]?.date ?? `${row.hour}-${index}`;
                         const isCurrentSlot =
                           currentTimeSlot?.date === date && currentTimeSlot.hour === row.hour;
 
@@ -1003,26 +1417,26 @@ export function TweetHeatmapDashboard() {
                   </tr>
                 )}
               </tbody>
-              {!loading && !error && data && dayColumns.length > 0 ? (
+              {!loading && !error && data && timelineDayColumns.length > 0 ? (
                 <tfoot>
                   <tr>
                     <th scope="row" className="summary-label-cell">
                       Total
                     </th>
-                    {dayColumns.map((column) => (
+                    {timelineDayColumns.map((column) => (
                       <td key={`${column.date}-total`} className="summary-cell">
                         {formatCount(column.total)}
                       </td>
                     ))}
                     <td className="summary-cell summary-cell--avg">
-                      {formatAverage(averageDailyTotal)}
+                      {formatAverage(timelineAverageDailyTotal)}
                     </td>
                   </tr>
                   <tr>
                     <th scope="row" className="summary-label-cell">
                       Trend
                     </th>
-                    {dayColumns.map((column) => (
+                    {timelineDayColumns.map((column) => (
                       <td
                         key={`${column.date}-trend`}
                         className={`trend-cell trend-cell--${column.trend.direction}`}
@@ -1038,6 +1452,104 @@ export function TweetHeatmapDashboard() {
             </table>
           )}
         </div>
+
+        {activeHeatmapView === "timeline" && !loading && !error && timelineDayColumns.length > 0 ? (
+          <div className="heatmap-summary-strip heatmap-summary-strip--timeline">
+            <span className="heatmap-summary-label">AVG / Day</span>
+            <strong className="heatmap-summary-value">
+              {formatAverage(timelineAverageDailyTotal)} tweets
+            </strong>
+            <span className="heatmap-summary-helper">
+              Across {formatCount(timelineDayColumns.length)} day(s)
+            </span>
+          </div>
+        ) : null}
+
+        {activeHeatmapView === "timeline" && loading ? (
+          <section className="hourly-chart-card">
+            <div className="hourly-chart-header">
+              <div>
+                <p className="eyebrow">Hourly average</p>
+                <h3>30D Average Activity by Hour of Day</h3>
+              </div>
+              <p className="hourly-chart-helper">From 30-Day Heatmap AVG</p>
+            </div>
+            <div className="tweets-empty-state">Loading chart data...</div>
+          </section>
+        ) : activeHeatmapView === "timeline" && error ? (
+          <section className="hourly-chart-card">
+            <div className="hourly-chart-header">
+              <div>
+                <p className="eyebrow">Hourly average</p>
+                <h3>30D Average Activity by Hour of Day</h3>
+              </div>
+              <p className="hourly-chart-helper">From 30-Day Heatmap AVG</p>
+            </div>
+            <div className="tweets-empty-state tweets-empty-state--error">{error}</div>
+          </section>
+        ) : activeHeatmapView === "timeline" && hourRows.length > 0 ? (
+          <section className="hourly-chart-card">
+            <div className="hourly-chart-header">
+              <div>
+                <p className="eyebrow">Hourly average</p>
+                <h3>30D Average Activity by Hour of Day</h3>
+              </div>
+              <p className="hourly-chart-helper">
+                From 30-Day Heatmap AVG. Peak hour:{" "}
+                {peakAverageHour ? formatHourChartLabel(peakAverageHour.hour) : "--"}
+              </p>
+            </div>
+
+            <div className="hourly-chart">
+              <div className="hourly-chart-y-axis">
+                {averageByHourTicks.map((tickValue) => (
+                  <span key={tickValue.toFixed(2)}>{tickValue.toFixed(1)}</span>
+                ))}
+              </div>
+
+              <div className="hourly-chart-plot">
+                {averageByHourTicks.map((tickValue) => (
+                  <div
+                    key={`grid-${tickValue.toFixed(2)}`}
+                    className="hourly-chart-gridline"
+                    style={{
+                      bottom: `${(tickValue / averageByHourChartMax) * 100}%`,
+                    }}
+                  />
+                ))}
+
+                <div className="hourly-chart-bars">
+                  {hourRows.map((row) => {
+                    const height = `${(row.average / averageByHourChartMax) * 100}%`;
+                    const isPeak = peakAverageHour?.hour === row.hour;
+
+                    return (
+                      <div key={row.hour} className="hourly-chart-column">
+                        <div
+                          className={`hourly-chart-bar${isPeak ? " hourly-chart-bar--peak" : ""}`}
+                          style={{ height }}
+                          title={`${formatHourChartLabel(row.hour)}: ${row.average.toFixed(2)} avg tweets`}
+                        />
+                        <span className="hourly-chart-label">{formatHourChartLabel(row.hour)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : activeHeatmapView === "timeline" ? (
+          <section className="hourly-chart-card">
+            <div className="hourly-chart-header">
+              <div>
+                <p className="eyebrow">Hourly average</p>
+                <h3>30D Average Activity by Hour of Day</h3>
+              </div>
+              <p className="hourly-chart-helper">From 30-Day Heatmap AVG</p>
+            </div>
+            <div className="tweets-empty-state">No chart data found for this window.</div>
+          </section>
+        ) : null}
       </section>
     </main>
   );

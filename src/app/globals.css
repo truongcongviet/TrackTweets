@@ -37,6 +37,7 @@ body {
 }
 
 input,
+select,
 button {
   font: inherit;
 }
@@ -372,6 +373,14 @@ button {
   margin-bottom: 16px;
 }
 
+.table-header-side {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .heatmap-view-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -443,9 +452,49 @@ button {
   align-items: start;
 }
 
+.classic-main-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
 .classic-heatmap-pane {
   min-width: 0;
   overflow: hidden;
+}
+
+.heatmap-summary-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid rgba(155, 169, 197, 0.14);
+  background: linear-gradient(180deg, rgba(13, 20, 31, 0.96), rgba(9, 14, 23, 0.98));
+}
+
+.heatmap-summary-strip--timeline {
+  margin-top: 14px;
+}
+
+.heatmap-summary-label {
+  color: #ffb06e;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.heatmap-summary-value {
+  color: #f4f7fb;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.heatmap-summary-helper {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .tweets-panel {
@@ -594,6 +643,236 @@ button {
 
 .tweets-empty-state--error {
   color: #ffc39d;
+}
+
+.hourly-chart-card {
+  margin-top: 22px;
+  padding: 18px 18px 14px;
+  border: 1px solid rgba(155, 169, 197, 0.14);
+  background: linear-gradient(180deg, rgba(17, 23, 35, 0.98), rgba(11, 17, 27, 0.98));
+}
+
+.hourly-chart-card--day {
+  margin-top: 0;
+}
+
+.hourly-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.hourly-chart-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.hourly-chart-helper {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.hourly-chart-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.chart-range-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.chart-range-control span {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chart-range-control--header {
+  font-size: 0.82rem;
+}
+
+.chart-range-control select {
+  min-width: 78px;
+  border: 1px solid rgba(158, 183, 214, 0.18);
+  background: rgba(9, 15, 24, 0.92);
+  color: #f4f7fb;
+  padding: 7px 10px;
+  outline: none;
+  cursor: pointer;
+}
+
+.chart-range-control select:focus {
+  border-color: rgba(255, 143, 61, 0.42);
+  box-shadow: 0 0 0 3px rgba(255, 143, 61, 0.12);
+}
+
+.hourly-chart {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.hourly-chart-y-axis {
+  position: relative;
+  height: 340px;
+}
+
+.hourly-chart-y-axis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+  color: rgba(186, 198, 216, 0.9);
+  font-size: 0.72rem;
+}
+
+.hourly-chart-y-axis span:nth-child(1) {
+  bottom: 100%;
+}
+
+.hourly-chart-y-axis span:nth-child(2) {
+  bottom: 80%;
+}
+
+.hourly-chart-y-axis span:nth-child(3) {
+  bottom: 60%;
+}
+
+.hourly-chart-y-axis span:nth-child(4) {
+  bottom: 40%;
+}
+
+.hourly-chart-y-axis span:nth-child(5) {
+  bottom: 20%;
+}
+
+.hourly-chart-y-axis span:nth-child(6) {
+  bottom: 0%;
+}
+
+.hourly-chart-plot {
+  position: relative;
+  height: 340px;
+  padding: 12px 8px 38px 2px;
+}
+
+.hourly-chart-plot--day {
+  overflow: hidden;
+}
+
+.hourly-chart-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid rgba(155, 169, 197, 0.14);
+}
+
+.hourly-chart-bars {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+  height: 100%;
+}
+
+.hourly-chart-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 100%;
+  min-width: 0;
+}
+
+.hourly-chart-column--day {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 18px;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.hourly-chart-bar-slot {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  min-height: 0;
+}
+
+.hourly-chart-bar {
+  width: 100%;
+  min-height: 2px;
+  background: linear-gradient(180deg, #3694dd 0%, #2b77b8 100%);
+}
+
+.hourly-chart-bar--peak {
+  background: linear-gradient(180deg, #f5c63d 0%, #d8a91e 100%);
+}
+
+.hourly-chart-label {
+  color: #e3eaf5;
+  font-size: 0.66rem;
+  line-height: 1;
+  transform: rotate(-45deg);
+  transform-origin: top center;
+  white-space: nowrap;
+}
+
+.hourly-chart-bars--day {
+  display: grid;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.hourly-chart-day-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 18px;
+  gap: 6px;
+  height: 100%;
+}
+
+.hourly-chart-day-column {
+  min-width: 0;
+  height: 100%;
+}
+
+.hourly-chart-day-track {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+}
+
+.hourly-chart-day-labels {
+  display: grid;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.hourly-chart-label--day {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  transform: none;
+  transform-origin: center;
+  font-size: 0.62rem;
+  min-height: 18px;
 }
 
 .heatmap-table {
@@ -966,6 +1245,42 @@ button {
   .table-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .table-header-side {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .hourly-chart-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hourly-chart-controls {
+    align-items: flex-start;
+  }
+
+  .hourly-chart {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .hourly-chart-y-axis,
+  .hourly-chart-plot {
+    height: 280px;
+  }
+
+  .hourly-chart-bars {
+    gap: 4px;
+  }
+
+  .hourly-chart-label {
+    font-size: 0.58rem;
+  }
+
+  .hourly-chart-label--day {
+    font-size: 0.54rem;
   }
 
   .heatmap-view-tabs {
