@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { HOUR_KEYS } from "@/lib/hourly-aggregation";
-import type { HourKey, HourlyHeatmapResponse, TrackingWindow } from "@/lib/types";
+import type { HeatmapRow, HourKey, HourlyHeatmapResponse, TrackingWindow } from "@/lib/types";
 
 const DEFAULT_HANDLE = "elonmusk";
 const DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh";
@@ -65,6 +65,23 @@ type HeatmapHourRow = {
   values: number[];
 };
 
+type ClassicDisplayRow = HeatmapRow & {
+  isFuturePlaceholder: boolean;
+};
+
+type TrackingDateRange = {
+  endDateKey: string;
+  startDateKey: string;
+};
+
+type HeatmapTrackingWindow = TrackingDateRange & {
+  id: string;
+  isSelected: boolean;
+  rangeLabel: string;
+  shortLabel: string;
+  title: string;
+};
+
 const CHART_WINDOW_OPTIONS = [7, 30, 90] as const;
 type ChartWindowDays = (typeof CHART_WINDOW_OPTIONS)[number];
 
@@ -90,6 +107,17 @@ const TWEET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 const DAY_CHART_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "numeric",
   day: "numeric",
+  timeZone: "UTC",
+});
+const TRACKING_RANGE_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+const TRACKING_RANGE_SHORT_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+  weekday: "short",
   timeZone: "UTC",
 });
 
@@ -194,6 +222,14 @@ function getClassicCellStyle(value: number, max: number) {
   };
 }
 
+function getFutureClassicCellStyle() {
+  return {
+    background:
+      "repeating-linear-gradient(-45deg, rgba(58, 78, 115, 0.88) 0 7px, rgba(41, 58, 90, 0.94) 7px 14px)",
+    color: "rgba(221, 232, 251, 0.26)",
+  };
+}
+
 function formatDayHeader(dateKey: string) {
   const date = new Date(`${dateKey}T00:00:00Z`);
   const parts = DAY_HEADER_FORMATTER.formatToParts(date);
@@ -202,6 +238,100 @@ function formatDayHeader(dateKey: string) {
     dayLabel: parts.find((part) => part.type === "day")?.value ?? dateKey.slice(-2),
     weekdayLabel: parts.find((part) => part.type === "weekday")?.value ?? dateKey,
   };
+}
+
+function formatTrackingDateKey(dateKey: string, formatter: Intl.DateTimeFormat) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return dateKey;
+  }
+
+  return formatter.format(date);
+}
+
+function createEmptyClassicHours(): Record<HourKey, number> {
+  return HOUR_KEYS.reduce(
+    (accumulator, hour) => {
+      accumulator[hour] = 0;
+      return accumulator;
+    },
+    {} as Record<HourKey, number>
+  );
+}
+
+function getDateRangeInclusive(start: string, end: string) {
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return [];
+  }
+
+  if (startDate.getTime() > endDate.getTime()) {
+    return [];
+  }
+
+  const dates: string[] = [];
+  const cursor = new Date(startDate);
+
+  while (cursor.getTime() <= endDate.getTime()) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return dates;
+}
+
+function getTrackingDateRange(tracking: TrackingWindow, timezone: string): TrackingDateRange | null {
+  const startDate = new Date(tracking.startDate);
+  const endDate = new Date(tracking.endDate);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  return {
+    startDateKey: formatDateKey(startDate, timezone),
+    endDateKey: formatDateKey(endDate, timezone),
+  };
+}
+
+function isDateWithinRange(dateKey: string, range: TrackingDateRange | null) {
+  if (!range) return false;
+  return dateKey >= range.startDateKey && dateKey <= range.endDateKey;
+}
+
+function buildClassicDisplayRows(rows: HeatmapRow[], displayEndDateKey: string): ClassicDisplayRow[] {
+  if (rows.length === 0) return [];
+
+  const rowMap = new Map(
+    rows.map((row) => [
+      row.date,
+      {
+        ...row,
+        isFuturePlaceholder: false,
+      },
+    ])
+  );
+
+  const oldestDateKey = rows[rows.length - 1]?.date ?? rows[0].date;
+  const inclusiveRange = getDateRangeInclusive(oldestDateKey, displayEndDateKey);
+
+  return inclusiveRange
+    .map((dateKey) => {
+      const existing = rowMap.get(dateKey);
+      if (existing) {
+        return existing;
+      }
+
+      return {
+        date: dateKey,
+        hours: createEmptyClassicHours(),
+        isFuturePlaceholder: true,
+        total: 0,
+      };
+    })
+    .sort((left, right) => right.date.localeCompare(left.date));
 }
 
 function formatAverage(value: number) {
@@ -325,6 +455,19 @@ function getHourKeyFormatter(timezone: string) {
 
   HOUR_KEY_FORMATTERS.set(timezone, formatter);
   return formatter;
+}
+
+function formatDateKey(date: Date, timezone: string) {
+  const parts = getDateKeyFormatter(timezone).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    throw new Error("Failed to format date in selected timezone");
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 function getCurrentTimeSlot(nowMs: number, timezone: string) {
@@ -772,6 +915,46 @@ export function TweetHeatmapDashboard() {
     return [...chartSource.rows].sort((left, right) => left.date.localeCompare(right.date));
   }, [chartSource]);
 
+  const selectedTrackingWindow = useMemo<TrackingDateRange | null>(() => {
+    if (!selectedTracking) return null;
+    return getTrackingDateRange(selectedTracking, submitted.timezone);
+  }, [selectedTracking, submitted.timezone]);
+
+  const classicDisplayRows = useMemo<ClassicDisplayRow[]>(() => {
+    if (!data || data.rows.length === 0) return [];
+
+    const latestLoadedDate = data.rows[0]?.date ?? submitted.end;
+    const displayEndDateKey =
+      selectedTrackingWindow && selectedTrackingWindow.endDateKey > latestLoadedDate
+        ? selectedTrackingWindow.endDateKey
+        : latestLoadedDate;
+
+    return buildClassicDisplayRows(data.rows, displayEndDateKey);
+  }, [data, selectedTrackingWindow, submitted.end]);
+
+  const heatmapTrackingWindows = useMemo<HeatmapTrackingWindow[]>(() => {
+    if (!data) return [];
+
+    return data.trackings
+      .map((tracking) => {
+        const range = getTrackingDateRange(tracking, submitted.timezone);
+        if (!range) return null;
+
+        return {
+          ...range,
+          id: tracking.id,
+          isSelected: tracking.id === selectedMarketId,
+          rangeLabel: `${formatTrackingDateKey(
+            range.startDateKey,
+            TRACKING_RANGE_LABEL_FORMATTER
+          )} -> ${formatTrackingDateKey(range.endDateKey, TRACKING_RANGE_LABEL_FORMATTER)}`,
+          shortLabel: formatTrackingDateKey(range.endDateKey, TRACKING_RANGE_SHORT_LABEL_FORMATTER),
+          title: tracking.title,
+        };
+      })
+      .filter((tracking): tracking is HeatmapTrackingWindow => tracking !== null);
+  }, [data, selectedMarketId, submitted.timezone]);
+
   const dayColumns = useMemo<HeatmapDayColumn[]>(() => {
     return chronologicalRows.map((row, index) => {
       const previousTotal = index > 0 ? chronologicalRows[index - 1].total : null;
@@ -1023,6 +1206,37 @@ export function TweetHeatmapDashboard() {
           </div>
         </div>
 
+        {activeHeatmapView === "classic" && heatmapTrackingWindows.length ? (
+          <div className="tracking-window-strip">
+            <div className="tracking-window-strip-copy">
+              <p className="tracking-window-strip-label">Event Window On Heatmap</p>
+              <p className="tracking-window-strip-helper">
+                {selectedTrackingWindow
+                  ? "Selected range is highlighted directly in the table. Future dates are shown as placeholder rows."
+                  : "Pick an event window to highlight its full date range on the table."}
+              </p>
+            </div>
+            <div className="tracking-window-list">
+              {heatmapTrackingWindows.map((tracking) => (
+                <button
+                  key={tracking.id}
+                  type="button"
+                  className={`tracking-window-chip${
+                    tracking.isSelected ? " tracking-window-chip--active" : ""
+                  }`}
+                  title={tracking.title}
+                  onClick={() => {
+                    setSelectedMarketId(tracking.id);
+                  }}
+                >
+                  <span className="tracking-window-chip-short">{tracking.shortLabel}</span>
+                  <span className="tracking-window-chip-range">{tracking.rangeLabel}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className={`table-scroll${activeHeatmapView === "classic" ? " table-scroll--classic" : ""}`}>
           {activeHeatmapView === "classic" ? (
             <div className="classic-layout">
@@ -1053,11 +1267,39 @@ export function TweetHeatmapDashboard() {
                             {error}
                           </td>
                         </tr>
-                      ) : data && data.rows.length > 0 ? (
-                        data.rows.map((row) => (
+                      ) : classicDisplayRows.length > 0 ? (
+                        classicDisplayRows.map((row) => {
+                          const isTrackedRow = isDateWithinRange(row.date, selectedTrackingWindow);
+                          const isTrackingTopEdge =
+                            selectedTrackingWindow?.endDateKey === row.date;
+                          const isTrackingBottomEdge =
+                            selectedTrackingWindow?.startDateKey === row.date;
+                          const trackingMarkerLabel = isTrackingTopEdge
+                            ? "END"
+                            : isTrackingBottomEdge
+                              ? "START"
+                              : null;
+
+                          return (
                           <tr key={row.date}>
-                            <th scope="row" className="classic-date-cell">
-                              {row.date.slice(5)}
+                            <th
+                              scope="row"
+                              className={`classic-date-cell${
+                                isTrackedRow ? " classic-date-cell--tracked" : ""
+                              }${row.isFuturePlaceholder ? " classic-date-cell--future" : ""}${
+                                isTrackingTopEdge ? " classic-date-cell--tracked-top" : ""
+                              }${isTrackingBottomEdge ? " classic-date-cell--tracked-bottom" : ""}`}
+                            >
+                              <div className="classic-date-stack">
+                                <span className="classic-date-value">{row.date.slice(5)}</span>
+                                {trackingMarkerLabel ? (
+                                  <span className="classic-date-marker">{trackingMarkerLabel}</span>
+                                ) : row.isFuturePlaceholder ? (
+                                  <span className="classic-date-marker classic-date-marker--future">
+                                    FUTURE
+                                  </span>
+                                ) : null}
+                              </div>
                             </th>
                             {HOUR_KEYS.map((hour) => {
                               const value = row.hours[hour];
@@ -1065,10 +1307,25 @@ export function TweetHeatmapDashboard() {
                                 currentTimeSlot?.date === row.date && currentTimeSlot.hour === hour;
 
                               return (
-                                <td key={`${row.date}-${hour}`}>
+                                <td
+                                  key={`${row.date}-${hour}`}
+                                  className={`${isTrackedRow ? " classic-grid-cell--tracked" : ""}${
+                                    isTrackingTopEdge ? " classic-grid-cell--tracked-top" : ""
+                                  }${
+                                    isTrackingBottomEdge ? " classic-grid-cell--tracked-bottom" : ""
+                                  }`}
+                                >
                                   <div
-                                    className={`heatmap-cell heatmap-cell--classic${isCurrentSlot ? " heatmap-cell--active heatmap-cell--active-classic" : ""}`}
-                                    style={getClassicCellStyle(value, data.maxHourlyCount)}
+                                    className={`heatmap-cell heatmap-cell--classic${
+                                      isCurrentSlot
+                                        ? " heatmap-cell--active heatmap-cell--active-classic"
+                                        : ""
+                                    }${isTrackedRow ? " heatmap-cell--tracking-window" : ""}`}
+                                    style={
+                                      row.isFuturePlaceholder
+                                        ? getFutureClassicCellStyle()
+                                        : getClassicCellStyle(value, data!.maxHourlyCount)
+                                    }
                                     title={isCurrentSlot ? "Current time slot" : undefined}
                                   >
                                     {value > 0 ? value : ""}
@@ -1076,9 +1333,18 @@ export function TweetHeatmapDashboard() {
                                 </td>
                               );
                             })}
-                            <td className="classic-total-cell">{formatCount(row.total)}</td>
+                            <td
+                              className={`classic-total-cell${
+                                isTrackedRow ? " classic-total-cell--tracked" : ""
+                              }${row.isFuturePlaceholder ? " classic-total-cell--future" : ""}${
+                                isTrackingTopEdge ? " classic-total-cell--tracked-top" : ""
+                              }${isTrackingBottomEdge ? " classic-total-cell--tracked-bottom" : ""}`}
+                            >
+                              {formatCount(row.total)}
+                            </td>
                           </tr>
-                        ))
+                        );
+                        })
                       ) : (
                         <tr>
                           <td className="empty-state" colSpan={activeTableColumnCount}>

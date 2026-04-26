@@ -381,6 +381,85 @@ button {
   justify-content: flex-end;
 }
 
+.tracking-window-strip {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(155, 169, 197, 0.16);
+  background: linear-gradient(180deg, rgba(10, 16, 26, 0.98), rgba(8, 13, 22, 0.98));
+}
+
+.tracking-window-strip-copy {
+  min-width: 0;
+}
+
+.tracking-window-strip-label {
+  margin: 0;
+  color: #ffb06e;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tracking-window-strip-helper {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.tracking-window-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.tracking-window-chip {
+  min-width: 168px;
+  border: 1px solid rgba(158, 183, 214, 0.16);
+  background: rgba(9, 15, 24, 0.92);
+  color: #e7eef9;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease,
+    background 140ms ease;
+}
+
+.tracking-window-chip:hover {
+  border-color: rgba(255, 143, 61, 0.3);
+  transform: translateY(-1px);
+}
+
+.tracking-window-chip--active {
+  border-color: rgba(255, 154, 89, 0.48);
+  background: linear-gradient(180deg, rgba(53, 37, 24, 0.96), rgba(30, 24, 18, 0.98));
+}
+
+.tracking-window-chip-short,
+.tracking-window-chip-range {
+  display: block;
+}
+
+.tracking-window-chip-short {
+  color: #fff0de;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.tracking-window-chip-range {
+  margin-top: 4px;
+  color: rgba(211, 221, 238, 0.9);
+  font-size: 0.74rem;
+}
+
 .heatmap-view-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -995,8 +1074,8 @@ button {
   position: sticky;
   left: 0;
   z-index: 4;
-  width: 44px;
-  min-width: 44px;
+  width: 78px;
+  min-width: 78px;
   text-align: left;
   background: linear-gradient(180deg, rgba(31, 47, 76, 0.98), rgba(27, 42, 68, 1));
 }
@@ -1027,9 +1106,80 @@ button {
   color: #d8e3fa;
 }
 
+.classic-date-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 5px 8px;
+}
+
+.classic-date-value {
+  display: block;
+  line-height: 1.1;
+}
+
+.classic-date-marker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 182, 116, 0.18);
+  color: #ffd9ba;
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.classic-date-marker--future {
+  background: rgba(105, 126, 166, 0.16);
+  color: rgba(212, 223, 244, 0.72);
+}
+
 .classic-total-cell {
   color: #f0f5ff;
   text-align: center;
+}
+
+.classic-date-cell--tracked,
+.classic-total-cell--tracked {
+  position: relative;
+}
+
+.classic-date-cell--tracked::after,
+.classic-total-cell--tracked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  background: linear-gradient(180deg, #ffc57e 0%, #ff8f3d 100%);
+}
+
+.classic-date-cell--tracked::after {
+  left: 0;
+}
+
+.classic-total-cell--tracked::after {
+  right: 0;
+}
+
+.classic-grid-cell--tracked-top,
+.classic-date-cell--tracked-top,
+.classic-total-cell--tracked-top {
+  box-shadow: inset 0 2px 0 rgba(255, 172, 95, 0.92);
+}
+
+.classic-grid-cell--tracked-bottom,
+.classic-date-cell--tracked-bottom,
+.classic-total-cell--tracked-bottom {
+  box-shadow: inset 0 -2px 0 rgba(255, 172, 95, 0.92);
+}
+
+.classic-date-cell--future,
+.classic-total-cell--future {
+  color: rgba(207, 219, 241, 0.7);
 }
 
 .heatmap-row-label,
@@ -1071,6 +1221,15 @@ button {
 }
 
 .heatmap-cell--timeline {
+}
+
+.heatmap-cell--tracking-window::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 166, 91, 0.08), rgba(255, 166, 91, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(255, 189, 127, 0.34);
+  pointer-events: none;
 }
 
 .heatmap-cell--active {
@@ -1179,6 +1338,14 @@ button {
     padding-inline: 12px;
   }
 
+  .tracking-window-strip {
+    flex-direction: column;
+  }
+
+  .tracking-window-list {
+    justify-content: flex-start;
+  }
+
   .classic-layout {
     grid-template-columns: 1fr;
   }
@@ -1250,6 +1417,10 @@ button {
   .table-header-side {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  .tracking-window-chip {
+    min-width: 100%;
   }
 
   .hourly-chart-header {
