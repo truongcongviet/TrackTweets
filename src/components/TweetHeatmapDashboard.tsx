@@ -75,7 +75,9 @@ type TrackingDateRange = {
 };
 
 type HeatmapTrackingWindow = TrackingDateRange & {
+  endDateMs: number;
   id: string;
+  isPast: boolean;
   isSelected: boolean;
   rangeLabel: string;
   shortLabel: string;
@@ -282,6 +284,17 @@ function getDateRangeInclusive(start: string, end: string) {
   return dates;
 }
 
+function shiftDateKey(dateKey: string, offsetDays: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateKey;
+  }
+
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
 function getTrackingDateRange(tracking: TrackingWindow, timezone: string): TrackingDateRange | null {
   const startDate = new Date(tracking.startDate);
   const endDate = new Date(tracking.endDate);
@@ -299,6 +312,17 @@ function getTrackingDateRange(tracking: TrackingWindow, timezone: string): Track
 function isDateWithinRange(dateKey: string, range: TrackingDateRange | null) {
   if (!range) return false;
   return dateKey >= range.startDateKey && dateKey <= range.endDateKey;
+}
+
+function getFocusedSubmittedRange(
+  current: SubmittedRange,
+  range: TrackingDateRange
+): SubmittedRange {
+  return {
+    ...current,
+    end: range.endDateKey,
+    start: shiftDateKey(range.endDateKey, -(CLASSIC_HEATMAP_WINDOW_DAYS - 1)),
+  };
 }
 
 function buildClassicDisplayRows(rows: HeatmapRow[], displayEndDateKey: string): ClassicDisplayRow[] {
@@ -531,14 +555,16 @@ function matchesTrackingRange(tracking: TrackingWindow, start: string, end: stri
 }
 
 function getDefaultTracking(trackings: TrackingWindow[], nowMs: number) {
-  const liveTracking =
-    trackings.find((tracking) => new Date(tracking.endDate).getTime() >= nowMs) ?? null;
+  const liveTrackings = trackings
+    .filter((tracking) => new Date(tracking.endDate).getTime() >= nowMs)
+    .sort((left, right) => Date.parse(left.endDate) - Date.parse(right.endDate));
+  const liveTracking = liveTrackings[0] ?? null;
 
   if (liveTracking) {
     return liveTracking;
   }
 
-  return trackings.at(-1) ?? null;
+  return [...trackings].sort((left, right) => right.endDate.localeCompare(left.endDate))[0] ?? null;
 }
 
 function getTrackingProgress(tracking: TrackingWindow, nowMs: number) {
@@ -599,16 +625,16 @@ function getTrackingWeekdays(tracking: TrackingWindow) {
 }
 
 export function TweetHeatmapDashboard() {
-  const defaultRange = useMemo(() => getDefaultRange(), []);
-  const submitted = useMemo<SubmittedRange>(
-    () => ({
+  const [submitted, setSubmitted] = useState<SubmittedRange>(() => {
+    const defaultRange = getDefaultRange();
+
+    return {
       handle: DEFAULT_HANDLE,
       start: defaultRange.start,
       end: defaultRange.end,
       timezone: DEFAULT_TIMEZONE,
-    }),
-    [defaultRange.end, defaultRange.start]
-  );
+    };
+  });
   const [data, setData] = useState<HourlyHeatmapResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -920,6 +946,28 @@ export function TweetHeatmapDashboard() {
     return getTrackingDateRange(selectedTracking, submitted.timezone);
   }, [selectedTracking, submitted.timezone]);
 
+  useEffect(() => {
+    if (!selectedTrackingWindow) return;
+
+    const isInsideCurrentRange =
+      selectedTrackingWindow.startDateKey >= submitted.start &&
+      selectedTrackingWindow.endDateKey <= submitted.end;
+
+    if (isInsideCurrentRange) {
+      return;
+    }
+
+    setSubmitted((current) => {
+      const next = getFocusedSubmittedRange(current, selectedTrackingWindow);
+
+      if (next.start === current.start && next.end === current.end) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [selectedTrackingWindow, submitted.end, submitted.start]);
+
   const classicDisplayRows = useMemo<ClassicDisplayRow[]>(() => {
     if (!data || data.rows.length === 0) return [];
 
@@ -938,11 +986,14 @@ export function TweetHeatmapDashboard() {
     return data.trackings
       .map((tracking) => {
         const range = getTrackingDateRange(tracking, submitted.timezone);
+        const endDateMs = Date.parse(tracking.endDate);
         if (!range) return null;
 
         return {
           ...range,
+          endDateMs,
           id: tracking.id,
+          isPast: Number.isFinite(endDateMs) ? endDateMs < nowMs : false,
           isSelected: tracking.id === selectedMarketId,
           rangeLabel: `${formatTrackingDateKey(
             range.startDateKey,
@@ -953,7 +1004,23 @@ export function TweetHeatmapDashboard() {
         };
       })
       .filter((tracking): tracking is HeatmapTrackingWindow => tracking !== null);
-  }, [data, selectedMarketId, submitted.timezone]);
+  }, [data, nowMs, selectedMarketId, submitted.timezone]);
+
+  const activeTrackingWindows = useMemo(() => {
+    return heatmapTrackingWindows
+      .filter((tracking) => !tracking.isPast)
+      .sort((left, right) => left.endDateMs - right.endDateMs);
+  }, [heatmapTrackingWindows]);
+
+  const pastTrackingWindows = useMemo(() => {
+    return heatmapTrackingWindows
+      .filter((tracking) => tracking.isPast)
+      .sort((left, right) => right.endDateMs - left.endDateMs);
+  }, [heatmapTrackingWindows]);
+
+  const selectedHeatmapTrackingWindow = useMemo(() => {
+    return heatmapTrackingWindows.find((tracking) => tracking.id === selectedMarketId) ?? null;
+  }, [heatmapTrackingWindows, selectedMarketId]);
 
   const dayColumns = useMemo<HeatmapDayColumn[]>(() => {
     return chronologicalRows.map((row, index) => {
@@ -1087,27 +1154,49 @@ export function TweetHeatmapDashboard() {
     <main className="page-shell">
       <section className="overview-stack">
         <section className="market-card">
-          <div className="market-tabs">
-            {data?.trackings.length ? (
-              data.trackings.map((tracking) => {
-                const isActive = selectedTracking?.id === tracking.id;
+          <div className="market-toolbar">
+            <div className="market-tabs">
+              {activeTrackingWindows.length ? (
+                activeTrackingWindows.map((tracking) => {
+                  const isActive = selectedTracking?.id === tracking.id;
 
-                return (
-                  <button
-                    key={tracking.id}
-                    type="button"
-                    className={`market-tab${isActive ? " market-tab--active" : ""}`}
-                    onClick={() => {
-                      setSelectedMarketId(tracking.id);
-                    }}
-                  >
-                    {formatTrackingLabel(tracking.endDate)}
-                  </button>
-                );
-              })
-            ) : (
-              <div className="market-tab market-tab--placeholder">No tracking windows</div>
-            )}
+                  return (
+                    <button
+                      key={tracking.id}
+                      type="button"
+                      className={`market-tab${isActive ? " market-tab--active" : ""}`}
+                      onClick={() => {
+                        setSelectedMarketId(tracking.id);
+                      }}
+                    >
+                      {tracking.shortLabel}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="market-tab market-tab--placeholder">No live 7-day events</div>
+              )}
+            </div>
+
+            {pastTrackingWindows.length ? (
+              <label className="market-history-picker">
+                <span>Past 7-Day Events</span>
+                <select
+                  value={selectedHeatmapTrackingWindow?.isPast ? selectedHeatmapTrackingWindow.id : ""}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    setSelectedMarketId(event.target.value);
+                  }}
+                >
+                  <option value="">Select past event</option>
+                  {pastTrackingWindows.map((tracking) => (
+                    <option key={tracking.id} value={tracking.id}>
+                      {tracking.rangeLabel}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
 
           {selectedTracking ? (
@@ -1206,7 +1295,7 @@ export function TweetHeatmapDashboard() {
           </div>
         </div>
 
-        {activeHeatmapView === "classic" && heatmapTrackingWindows.length ? (
+        {activeHeatmapView === "classic" && selectedHeatmapTrackingWindow ? (
           <div className="tracking-window-strip">
             <div className="tracking-window-strip-copy">
               <p className="tracking-window-strip-label">Event Window On Heatmap</p>
@@ -1216,23 +1305,18 @@ export function TweetHeatmapDashboard() {
                   : "Pick an event window to highlight its full date range on the table."}
               </p>
             </div>
-            <div className="tracking-window-list">
-              {heatmapTrackingWindows.map((tracking) => (
-                <button
-                  key={tracking.id}
-                  type="button"
-                  className={`tracking-window-chip${
-                    tracking.isSelected ? " tracking-window-chip--active" : ""
-                  }`}
-                  title={tracking.title}
-                  onClick={() => {
-                    setSelectedMarketId(tracking.id);
-                  }}
-                >
-                  <span className="tracking-window-chip-short">{tracking.shortLabel}</span>
-                  <span className="tracking-window-chip-range">{tracking.rangeLabel}</span>
-                </button>
-              ))}
+            <div
+              className={`tracking-window-chip tracking-window-chip--summary${
+                selectedHeatmapTrackingWindow.isPast ? " tracking-window-chip--past" : ""
+              }`}
+              title={selectedHeatmapTrackingWindow.title}
+            >
+              <span className="tracking-window-chip-short">
+                {selectedHeatmapTrackingWindow.shortLabel}
+              </span>
+              <span className="tracking-window-chip-range">
+                {selectedHeatmapTrackingWindow.rangeLabel}
+              </span>
             </div>
           </div>
         ) : null}

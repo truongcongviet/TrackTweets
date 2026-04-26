@@ -112,8 +112,16 @@ button {
     linear-gradient(135deg, rgba(64, 121, 255, 0.08), transparent 38%);
 }
 
+.market-toolbar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .market-tabs {
   display: flex;
+  flex: 1;
   gap: 10px;
   padding: 10px;
   border-radius: 12px;
@@ -148,6 +156,34 @@ button {
 
 .market-tab--placeholder {
   cursor: default;
+}
+
+.market-history-picker {
+  display: flex;
+  min-width: 250px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(7, 11, 20, 0.96);
+  color: rgba(180, 193, 214, 0.9);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.market-history-picker select {
+  border: 1px solid rgba(158, 183, 214, 0.18);
+  background: rgba(10, 16, 26, 0.94);
+  color: #f4f7fb;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.market-history-picker select:focus {
+  border-color: rgba(255, 143, 61, 0.42);
+  box-shadow: 0 0 0 3px rgba(255, 143, 61, 0.12);
 }
 
 .market-body {
@@ -412,13 +448,6 @@ button {
   line-height: 1.45;
 }
 
-.tracking-window-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 .tracking-window-chip {
   min-width: 168px;
   border: 1px solid rgba(158, 183, 214, 0.16);
@@ -441,6 +470,19 @@ button {
 .tracking-window-chip--active {
   border-color: rgba(255, 154, 89, 0.48);
   background: linear-gradient(180deg, rgba(53, 37, 24, 0.96), rgba(30, 24, 18, 0.98));
+}
+
+.tracking-window-chip--summary {
+  min-width: 220px;
+  cursor: default;
+}
+
+.tracking-window-chip--summary:hover {
+  transform: none;
+}
+
+.tracking-window-chip--past {
+  border-color: rgba(120, 151, 214, 0.24);
 }
 
 .tracking-window-chip-short,
@@ -1338,12 +1380,16 @@ button {
     padding-inline: 12px;
   }
 
-  .tracking-window-strip {
+  .market-toolbar {
     flex-direction: column;
   }
 
-  .tracking-window-list {
-    justify-content: flex-start;
+  .market-history-picker {
+    min-width: 0;
+  }
+
+  .tracking-window-strip {
+    flex-direction: column;
   }
 
   .classic-layout {

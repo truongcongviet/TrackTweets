@@ -120,6 +120,10 @@ function normalizeTracking(tracking: XTrackerTrackingPayload): XTrackerTracking 
   };
 }
 
+function isRetweet(content: string) {
+  return /^RT\s+@/i.test(content.trim());
+}
+
 function isSevenDayTracking(tracking: XTrackerTracking) {
   const startMs = Date.parse(tracking.startDate);
   const endMs = Date.parse(tracking.endDate);
@@ -131,8 +135,29 @@ function isSevenDayTracking(tracking: XTrackerTracking) {
   return Math.round((endMs - startMs) / DAY_MS) === 7;
 }
 
-function isRetweet(content: string) {
-  return /^RT\s+@/i.test(content.trim());
+function dedupeTrackings(trackings: XTrackerTracking[]) {
+  const deduped = new Map<string, XTrackerTracking>();
+
+  for (const tracking of trackings) {
+    const key = `${tracking.startDate}:${tracking.endDate}:${tracking.title}`;
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, tracking);
+      continue;
+    }
+
+    if (!existing.marketLink && tracking.marketLink) {
+      deduped.set(key, tracking);
+      continue;
+    }
+
+    if (!existing.isActive && tracking.isActive) {
+      deduped.set(key, tracking);
+    }
+  }
+
+  return [...deduped.values()];
 }
 
 function getLifetimeEndDate(lastSync: string | null) {
@@ -228,14 +253,13 @@ export async function fetchXTrackerTrackings(handle: string): Promise<XTrackerTr
     searchParams,
   });
 
-  const now = Date.now();
-
-  return (payload.data ?? [])
-    .map(normalizeTracking)
-    .filter((tracking): tracking is XTrackerTracking => tracking !== null)
+  return dedupeTrackings(
+    (payload.data ?? [])
+      .map(normalizeTracking)
+      .filter((tracking): tracking is XTrackerTracking => tracking !== null)
+  )
     .filter((tracking) => isSevenDayTracking(tracking))
-    .filter((tracking) => Date.parse(tracking.endDate) >= now)
-    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+    .sort((left, right) => right.endDate.localeCompare(left.endDate));
 }
 
 export async function fetchXTrackerPosts(input: {
