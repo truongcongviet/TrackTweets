@@ -60,3 +60,41 @@ export type HourlyHeatmapResponse = HourlyHeatmapBase & {
   rangePostCount: number;
   trackings: TrackingWindow[];
 };
+
+export type PolymarketHistoryWindowId = "24h" | "12h" | "6h" | "3h" | "1h";
+
+export type PolymarketHistoryWindow = {
+  hours: number;
+  id: PolymarketHistoryWindowId;
+  label: string;
+};
+
+export type PolymarketHistoryPoint = {
+  pricePct: number | null;
+  ts: number;
+};
+
+export type PolymarketHistoryRow = {
+  bracket: string;
+  finalPricePct: number | null;
+  historyPoints: PolymarketHistoryPoint[];
+  isResolved: boolean;
+  latestPricePct: number | null;
+  latestTimestamp: number | null;
+  marketSlug: string;
+  noTokenId: string | null;
+  values: Record<PolymarketHistoryWindowId, number | null>;
+  yesTokenId: string;
+};
+
+export type PolymarketHistoryResponse = {
+  asOfLabel: string;
+  asOfTs: number;
+  eventSlug: string;
+  eventTitle: string;
+  leaders: Record<PolymarketHistoryWindowId, string | null>;
+  resolvedWinnerBracket: string | null;
+  rows: PolymarketHistoryRow[];
+  visibleBracketRangeLabel: string;
+  windows: PolymarketHistoryWindow[];
+};

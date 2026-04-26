@@ -1,12 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MarketPriceHistoryTable } from "@/components/MarketPriceHistoryTable";
 import { HOUR_KEYS } from "@/lib/hourly-aggregation";
-import type { HeatmapRow, HourKey, HourlyHeatmapResponse, TrackingWindow } from "@/lib/types";
+import { extractPolymarketEventSlug } from "@/lib/polymarket";
+import type {
+  HeatmapRow,
+  HourKey,
+  HourlyHeatmapResponse,
+  PolymarketHistoryResponse,
+  TrackingWindow,
+} from "@/lib/types";
 
 const DEFAULT_HANDLE = "elonmusk";
 const DEFAULT_TIMEZONE = "Asia/Ho_Chi_Minh";
 const MARKET_COUNT_REFRESH_MS = 30_000;
+const MARKET_HISTORY_REFRESH_MS = 60_000;
 const CLASSIC_HEATMAP_WINDOW_DAYS = 90 as const;
 const TIMELINE_HEATMAP_WINDOW_DAYS = 30 as const;
 const DEFAULT_CHART_WINDOW_DAYS = 90 as const;
@@ -93,6 +102,7 @@ type DailyChartRow = {
   total: number;
 };
 
+type DashboardSection = "home" | "analysis";
 type HeatmapView = "classic" | "timeline";
 
 const DAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -650,6 +660,10 @@ export function TweetHeatmapDashboard() {
   const [chartData, setChartData] = useState<HourlyHeatmapResponse | null>(null);
   const [chartError, setChartError] = useState<string | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
+  const [activeSection, setActiveSection] = useState<DashboardSection>("home");
+  const [marketHistoryData, setMarketHistoryData] = useState<PolymarketHistoryResponse | null>(null);
+  const [marketHistoryError, setMarketHistoryError] = useState<string | null>(null);
+  const [marketHistoryLoading, setMarketHistoryLoading] = useState(false);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -836,6 +850,10 @@ export function TweetHeatmapDashboard() {
     return data.trackings.find((tracking) => tracking.id === selectedMarketId) ?? null;
   }, [data, selectedMarketId]);
 
+  const selectedEventSlug = useMemo(() => {
+    return extractPolymarketEventSlug(selectedTracking?.marketLink ?? null);
+  }, [selectedTracking?.marketLink]);
+
   useEffect(() => {
     if (!data) return;
 
@@ -907,6 +925,71 @@ export function TweetHeatmapDashboard() {
       window.clearInterval(intervalId);
     };
   }, [data, selectedTracking]);
+
+  useEffect(() => {
+    if (!selectedTracking || !selectedEventSlug) {
+      setMarketHistoryData(null);
+      setMarketHistoryError(null);
+      setMarketHistoryLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const currentTracking = selectedTracking;
+    const currentEventSlug = selectedEventSlug;
+
+    async function loadMarketHistory() {
+      setMarketHistoryLoading(true);
+      setMarketHistoryError(null);
+
+      const params = new URLSearchParams({
+        endAt: currentTracking.endDate,
+        eventSlug: currentEventSlug,
+      });
+
+      try {
+        const response = await fetch(
+          `/api/xtracker/${encodeURIComponent(submitted.handle)}/market-history?${params.toString()}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        );
+
+        const payload = (await response.json()) as PolymarketHistoryResponse | HeatmapApiError;
+
+        if (!response.ok) {
+          const message =
+            "message" in payload && typeof payload.message === "string"
+              ? payload.message
+              : "Failed to load market price history";
+          throw new Error(message);
+        }
+
+        setMarketHistoryData(payload as PolymarketHistoryResponse);
+      } catch (fetchError) {
+        if (controller.signal.aborted) return;
+        const message =
+          fetchError instanceof Error ? fetchError.message : "Failed to load market price history";
+        setMarketHistoryError(message);
+        setMarketHistoryData(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setMarketHistoryLoading(false);
+        }
+      }
+    }
+
+    void loadMarketHistory();
+    const intervalId = window.setInterval(() => {
+      void loadMarketHistory();
+    }, MARKET_HISTORY_REFRESH_MS);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [selectedEventSlug, selectedTracking, submitted.handle]);
 
   const trackingProgress = useMemo(() => {
     if (!selectedTracking) return null;
@@ -1152,6 +1235,39 @@ export function TweetHeatmapDashboard() {
 
   return (
     <main className="page-shell">
+      <section className="section-nav-card">
+        <div className="section-nav-copy">
+          <p className="eyebrow">Navigation</p>
+          <h1 className="section-nav-title">TrackTweets</h1>
+          <p className="section-nav-helper">
+            {activeSection === "home"
+              ? "Home keeps the live tweet heatmap and recent post context."
+              : "Analysis focuses on the Polymarket bracket price history table."}
+          </p>
+        </div>
+
+        <div className="section-nav-tabs" role="tablist" aria-label="Dashboard sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === "home"}
+            className={`section-nav-tab${activeSection === "home" ? " section-nav-tab--active" : ""}`}
+            onClick={() => setActiveSection("home")}
+          >
+            Home
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === "analysis"}
+            className={`section-nav-tab${activeSection === "analysis" ? " section-nav-tab--active" : ""}`}
+            onClick={() => setActiveSection("analysis")}
+          >
+            Analysis
+          </button>
+        </div>
+      </section>
+
       <section className="overview-stack">
         <section className="market-card">
           <div className="market-toolbar">
@@ -1260,6 +1376,20 @@ export function TweetHeatmapDashboard() {
         </section>
       </section>
 
+      {activeSection === "analysis" && selectedTracking ? (
+        <MarketPriceHistoryTable
+          data={marketHistoryData}
+          emptyMessage={
+            selectedEventSlug
+              ? null
+              : "This tracking window is missing a Polymarket event link, so price history cannot be loaded."
+          }
+          error={marketHistoryError}
+          loading={marketHistoryLoading}
+        />
+      ) : null}
+
+      {activeSection === "home" ? (
       <section className="table-card">
         <div className="table-header">
           <div>
@@ -1901,6 +2031,7 @@ export function TweetHeatmapDashboard() {
           </section>
         ) : null}
       </section>
+      ) : null}
     </main>
   );
 }
