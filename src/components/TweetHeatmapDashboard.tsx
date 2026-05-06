@@ -945,6 +945,7 @@ export function TweetHeatmapDashboard() {
       const params = new URLSearchParams({
         endAt: currentTracking.endDate,
         eventSlug: currentEventSlug,
+        startAt: currentTracking.startDate,
       });
 
       try {

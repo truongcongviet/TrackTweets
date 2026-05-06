@@ -11,7 +11,7 @@ const POLYMARKET_CLOB_API_URL = "https://clob.polymarket.com";
 const POLYMARKET_CACHE_SECONDS = 60;
 const BATCH_HISTORY_LIMIT = 20;
 const BRACKET_VISIBLE_MAX = 499;
-const BRACKET_VISIBLE_MIN = 120;
+const BRACKET_VISIBLE_MIN = 100;
 const HISTORY_PADDING_HOURS = 2;
 const VISIBLE_BRACKET_RANGE_LABEL = `${BRACKET_VISIBLE_MIN}-${BRACKET_VISIBLE_MAX}`;
 
@@ -294,6 +294,18 @@ function getResolvedWinnerBracket(markets: PolymarketBracketMarket[]) {
   return markets.find((market) => market.finalPricePct !== null && market.finalPricePct >= 100)?.bracket ?? null;
 }
 
+function getTimelineEndTs(rows: PolymarketHistoryRow[], fallbackTs: number) {
+  const timestamps = rows
+    .map((row) => row.latestTimestamp)
+    .filter((timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp));
+
+  if (!timestamps.length) {
+    return fallbackTs;
+  }
+
+  return Math.max(...timestamps);
+}
+
 function formatAsOfLabel(asOfTs: number) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
@@ -344,6 +356,8 @@ export async function fetchPolymarketBracketHistory(input: {
       },
       resolvedWinnerBracket,
       rows: [],
+      timelineEndTs: Math.floor(Date.now() / 1000),
+      tweetTimelinePoints: [],
       visibleBracketRangeLabel: VISIBLE_BRACKET_RANGE_LABEL,
       windows: HISTORY_WINDOWS,
     };
@@ -390,6 +404,7 @@ export async function fetchPolymarketBracketHistory(input: {
       yesTokenId: market.yesTokenId,
     };
   });
+  const timelineEndTs = getTimelineEndTs(rows, asOfTs);
 
   return {
     asOfLabel: formatAsOfLabel(asOfTs),
@@ -399,6 +414,8 @@ export async function fetchPolymarketBracketHistory(input: {
     leaders: getLeaderByWindow(rows),
     resolvedWinnerBracket,
     rows,
+    timelineEndTs,
+    tweetTimelinePoints: [],
     visibleBracketRangeLabel: VISIBLE_BRACKET_RANGE_LABEL,
     windows: HISTORY_WINDOWS,
   };

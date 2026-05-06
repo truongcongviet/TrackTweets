@@ -74,6 +74,11 @@ export type PolymarketHistoryPoint = {
   ts: number;
 };
 
+export type PolymarketTweetTimelinePoint = {
+  count: number;
+  ts: number;
+};
+
 export type PolymarketHistoryRow = {
   bracket: string;
   finalPricePct: number | null;
@@ -95,6 +100,8 @@ export type PolymarketHistoryResponse = {
   leaders: Record<PolymarketHistoryWindowId, string | null>;
   resolvedWinnerBracket: string | null;
   rows: PolymarketHistoryRow[];
+  timelineEndTs: number;
+  tweetTimelinePoints: PolymarketTweetTimelinePoint[];
   visibleBracketRangeLabel: string;
   windows: PolymarketHistoryWindow[];
 };
