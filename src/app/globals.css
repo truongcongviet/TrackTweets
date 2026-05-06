@@ -575,6 +575,26 @@ button {
   background: linear-gradient(180deg, rgba(14, 19, 29, 0.98), rgba(8, 12, 20, 0.98));
 }
 
+.market-history-bracket-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.market-history-bracket-toggle-input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #f0d75d;
+  cursor: pointer;
+}
+
+.market-history-bracket-toggle-text {
+  color: inherit;
+  line-height: 1.15;
+}
+
 .market-history-value-cell {
   padding: 0;
 }
@@ -596,6 +616,17 @@ button {
 
 .market-history-value--leader {
   transform: translateY(-1px);
+}
+
+.market-history-row--selected .market-history-bracket-cell {
+  background: linear-gradient(180deg, rgba(52, 42, 13, 0.98), rgba(24, 19, 8, 0.98));
+  box-shadow:
+    inset 3px 0 0 rgba(255, 216, 120, 0.92),
+    inset 0 0 0 1px rgba(255, 216, 120, 0.14);
+}
+
+.market-history-row--selected .market-history-bracket-toggle-text {
+  color: #fff1bf;
 }
 
 .market-history-footer-label,

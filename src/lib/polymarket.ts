@@ -13,6 +13,7 @@ const BATCH_HISTORY_LIMIT = 20;
 const BRACKET_VISIBLE_MAX = 499;
 const BRACKET_VISIBLE_MIN = 100;
 const HISTORY_PADDING_HOURS = 2;
+const HISTORY_TIMEZONE = "Asia/Ho_Chi_Minh";
 const VISIBLE_BRACKET_RANGE_LABEL = `${BRACKET_VISIBLE_MIN}-${BRACKET_VISIBLE_MAX}`;
 
 const HISTORY_WINDOWS: PolymarketHistoryWindow[] = [
@@ -211,8 +212,7 @@ async function fetchBatchHistory(input: {
     const payload = await fetchPolymarketJson<BatchPriceHistoryPayload>(url, {
       body: JSON.stringify({
         end_ts: input.endTs,
-        fidelity: 60,
-        interval: "1h",
+        fidelity: 1,
         markets: chunk,
         start_ts: input.startTs,
       }),
@@ -223,7 +223,12 @@ async function fetchBatchHistory(input: {
     });
 
     for (const tokenId of chunk) {
-      history.set(tokenId, payload.history?.[tokenId] ?? []);
+      history.set(
+        tokenId,
+        (payload.history?.[tokenId] ?? []).filter(
+          (point) => typeof point.t !== "number" || point.t <= input.endTs
+        )
+      );
     }
   }
 
@@ -310,7 +315,7 @@ function formatAsOfLabel(asOfTs: number) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC",
+    timeZone: HISTORY_TIMEZONE,
   }).format(new Date(asOfTs * 1000));
 }
 

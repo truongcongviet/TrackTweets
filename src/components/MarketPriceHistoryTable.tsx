@@ -39,8 +39,10 @@ type TrendChartPoint = {
 const LOW_COLOR = { blue: 39, green: 38, red: 28 };
 const MID_COLOR = { blue: 87, green: 73, red: 85 };
 const HIGH_COLOR = { blue: 90, green: 139, red: 80 };
-const HISTORY_TIMEZONE = "America/New_York";
+const HISTORY_TIMEZONE = "Asia/Ho_Chi_Minh";
+const HISTORY_TIMEZONE_LABEL = "GMT+7";
 const TREND_SERIES_COLORS = ["#ff685a", "#f0d75d", "#91ff5f", "#69f0b2", "#61a9ff", "#7e65ff"];
+const BRACKET_SELECTION_STORAGE_KEY = "market-price-history-selected-brackets";
 const VIEW_DEFAULT_WINDOWS: Record<HistoryView, PolymarketHistoryWindowId> = {
   price: "1h",
   trend: "24h",
@@ -127,17 +129,40 @@ function getValueBounds(rows: PolymarketHistoryRow[]) {
   };
 }
 
+function parseStoredBracketSelections(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return {} as Record<string, string[]>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([eventSlug, brackets]) => [
+        eventSlug,
+        Array.isArray(brackets)
+          ? brackets.filter((bracket): bracket is string => typeof bracket === "string")
+          : [],
+      ])
+      .filter((entry): entry is [string, string[]] => entry[1].length > 0)
+  );
+}
+
 function getHistoryCellStyle(input: {
   isLeader: boolean;
+  isSelected: boolean;
   max: number;
   min: number;
   value: number | null;
 }) {
+  const selectedBorderColor = "rgba(255, 216, 120, 0.78)";
+  const selectedShadow =
+    "inset 0 0 0 1px rgba(255, 241, 186, 0.18), 0 0 0 1px rgba(255, 216, 120, 0.12)";
+
   if (input.value === null || !Number.isFinite(input.value)) {
     return {
       background:
         "linear-gradient(180deg, rgba(16, 21, 34, 0.98) 0%, rgba(10, 14, 24, 0.98) 100%)",
-      borderColor: "rgba(130, 145, 173, 0.14)",
+      borderColor: input.isSelected ? selectedBorderColor : "rgba(130, 145, 173, 0.14)",
+      boxShadow: input.isSelected ? selectedShadow : undefined,
       color: "rgba(185, 195, 214, 0.48)",
     };
   }
@@ -152,10 +177,14 @@ function getHistoryCellStyle(input: {
       color.red - 6,
       0
     )}, ${Math.max(color.green - 6, 0)}, ${Math.max(color.blue - 6, 0)}, 0.99) 100%)`,
-    borderColor: input.isLeader
-      ? "rgba(255, 209, 133, 0.54)"
-      : `rgba(255, 255, 255, ${0.08 + ratio * 0.12})`,
-    boxShadow: `inset 0 1px 0 rgba(255, 255, 255, ${highlightOpacity})`,
+    borderColor: input.isSelected
+      ? selectedBorderColor
+      : input.isLeader
+        ? "rgba(255, 209, 133, 0.54)"
+        : `rgba(255, 255, 255, ${0.08 + ratio * 0.12})`,
+    boxShadow: input.isSelected
+      ? `${selectedShadow}, inset 0 1px 0 rgba(255, 255, 255, ${highlightOpacity})`
+      : `inset 0 1px 0 rgba(255, 255, 255, ${highlightOpacity})`,
     color: ratio >= 0.72 ? "#eef8ec" : "#f2f3fb",
   };
 }
@@ -168,6 +197,42 @@ function getHistoryValueAtOrBefore(historyPoints: PolymarketHistoryPoint[], ts: 
   }
 
   return null;
+}
+
+function getHistoryPointAtOrBefore(historyPoints: PolymarketHistoryPoint[], ts: number) {
+  for (let index = historyPoints.length - 1; index >= 0; index -= 1) {
+    const point = historyPoints[index];
+    if (point.ts <= ts && point.pricePct !== null) {
+      return point;
+    }
+  }
+
+  return null;
+}
+
+function getPeakHistoryPointInRange(
+  historyPoints: PolymarketHistoryPoint[],
+  startTs: number,
+  endTs: number
+) {
+  let peakPoint = getHistoryPointAtOrBefore(historyPoints, startTs);
+
+  for (const point of historyPoints) {
+    if (point.ts < startTs || point.ts > endTs || point.pricePct === null) {
+      continue;
+    }
+
+    if (
+      !peakPoint ||
+      peakPoint.pricePct === null ||
+      point.pricePct > peakPoint.pricePct ||
+      (point.pricePct === peakPoint.pricePct && point.ts > peakPoint.ts)
+    ) {
+      peakPoint = point;
+    }
+  }
+
+  return peakPoint;
 }
 
 function getTimelineColumns(gridEndTs: number | null, window: PolymarketHistoryWindow | null) {
@@ -349,9 +414,37 @@ export function MarketPriceHistoryTable({
   loading,
 }: MarketPriceHistoryTableProps) {
   const [activeView, setActiveView] = useState<HistoryView>("price");
+  const [selectedBracketsByEvent, setSelectedBracketsByEvent] = useState<
+    Record<string, string[]> | null
+  >(null);
   const [selectedWindowByView, setSelectedWindowByView] = useState<
     Record<HistoryView, PolymarketHistoryWindowId>
   >(VIEW_DEFAULT_WINDOWS);
+
+  useEffect(() => {
+    try {
+      const storedValue = window.localStorage.getItem(BRACKET_SELECTION_STORAGE_KEY);
+      if (!storedValue) {
+        setSelectedBracketsByEvent({});
+        return;
+      }
+
+      setSelectedBracketsByEvent(parseStoredBracketSelections(JSON.parse(storedValue)));
+    } catch {
+      setSelectedBracketsByEvent({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedBracketsByEvent === null) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      BRACKET_SELECTION_STORAGE_KEY,
+      JSON.stringify(selectedBracketsByEvent)
+    );
+  }, [selectedBracketsByEvent]);
 
   useEffect(() => {
     if (!data?.windows.length) {
@@ -381,6 +474,14 @@ export function MarketPriceHistoryTable({
   }, [data?.windows]);
 
   const selectedWindowId = selectedWindowByView[activeView];
+  const selectionScopeKey = data?.eventSlug ?? null;
+  const selectedBrackets = useMemo(() => {
+    if (!selectionScopeKey || !selectedBracketsByEvent) {
+      return new Set<string>();
+    }
+
+    return new Set(selectedBracketsByEvent[selectionScopeKey] ?? []);
+  }, [selectedBracketsByEvent, selectionScopeKey]);
 
   const valueBounds = useMemo(() => getValueBounds(data?.rows ?? []), [data?.rows]);
   const selectedWindow = useMemo(() => {
@@ -397,10 +498,34 @@ export function MarketPriceHistoryTable({
     () => getTimelineColumns(data?.timelineEndTs ?? data?.asOfTs ?? null, selectedWindow),
     [data?.asOfTs, data?.timelineEndTs, selectedWindow]
   );
+  const selectedRangeEndTs = data?.timelineEndTs ?? data?.asOfTs ?? null;
+  const selectedRangeStartTs = useMemo(() => {
+    if (!selectedWindow || !selectedRangeEndTs) {
+      return null;
+    }
+
+    return selectedRangeEndTs - selectedWindow.hours * 60 * 60;
+  }, [selectedRangeEndTs, selectedWindow]);
   const timelineLeaders = useMemo(
     () => getTimelineLeaders(data?.rows ?? [], timelineColumns),
     [data?.rows, timelineColumns]
   );
+  const rowPeakPoints = useMemo(() => {
+    const peaks = new Map<string, PolymarketHistoryPoint | null>();
+
+    if (selectedRangeStartTs === null || selectedRangeEndTs === null) {
+      return peaks;
+    }
+
+    for (const row of data?.rows ?? []) {
+      peaks.set(
+        row.bracket,
+        getPeakHistoryPointInRange(row.historyPoints, selectedRangeStartTs, selectedRangeEndTs)
+      );
+    }
+
+    return peaks;
+  }, [data?.rows, selectedRangeEndTs, selectedRangeStartTs]);
   const trendSeries = useMemo(
     () => getTrendSeries(data?.rows ?? [], timelineColumns),
     [data?.rows, timelineColumns]
@@ -425,6 +550,30 @@ export function MarketPriceHistoryTable({
 
     return !(data.rows ?? []).some((row) => row.bracket === data.resolvedWinnerBracket);
   }, [data?.resolvedWinnerBracket, data?.rows]);
+  const peakLeader = useMemo(() => {
+    let leader: { bracket: string; point: PolymarketHistoryPoint } | null = null;
+
+    for (const row of data?.rows ?? []) {
+      const point = rowPeakPoints.get(row.bracket);
+      if (!point || point.pricePct === null) {
+        continue;
+      }
+
+      if (
+        !leader ||
+        leader.point.pricePct === null ||
+        point.pricePct > leader.point.pricePct ||
+        (point.pricePct === leader.point.pricePct && point.ts > leader.point.ts)
+      ) {
+        leader = {
+          bracket: row.bracket,
+          point,
+        };
+      }
+    }
+
+    return leader;
+  }, [data?.rows, rowPeakPoints]);
   const trendTweetCounts = useMemo(
     () => timelineColumns.map((column) => getTweetCountAtTs(data?.tweetTimelinePoints ?? [], column.ts)),
     [data?.tweetTimelinePoints, timelineColumns]
@@ -464,7 +613,34 @@ export function MarketPriceHistoryTable({
     timelineColumns.length <= 1 ? 0 : trendInnerWidth / Math.max(timelineColumns.length - 1, 1);
   const trendBarWidth = Math.max(10, Math.min(24, trendStepX * 0.46));
   const showTrendPointMarkers = timelineColumns.length <= 12;
-  const colSpan = 1 + (hasFinalColumn ? 1 : 0) + Math.max(timelineColumns.length, 1);
+  const colSpan = 2 + (hasFinalColumn ? 1 : 0) + Math.max(timelineColumns.length, 1);
+
+  function toggleBracketSelection(bracket: string) {
+    if (!selectionScopeKey) {
+      return;
+    }
+
+    setSelectedBracketsByEvent((current) => {
+      const nextSelections = { ...(current ?? {}) };
+      const currentSelections = new Set(nextSelections[selectionScopeKey] ?? []);
+
+      if (currentSelections.has(bracket)) {
+        currentSelections.delete(bracket);
+      } else {
+        currentSelections.add(bracket);
+      }
+
+      if (currentSelections.size === 0) {
+        delete nextSelections[selectionScopeKey];
+      } else {
+        nextSelections[selectionScopeKey] = [...currentSelections].sort((left, right) =>
+          left.localeCompare(right, undefined, { numeric: true })
+        );
+      }
+
+      return nextSelections;
+    });
+  }
 
   return (
     <section className="table-card market-price-history-card">
@@ -502,7 +678,7 @@ export function MarketPriceHistoryTable({
             {data
               ? activeView === "trend"
                 ? `Hourly trend view for ${data.eventTitle}. Bars show tweet count and lines show YES-price leaders within ${data.visibleBracketRangeLabel}.`
-                : `Hourly YES-price timeline for ${data.eventTitle}. Columns are fixed to an hourly grid and visible brackets are filtered to ${data.visibleBracketRangeLabel}.`
+                : `Hourly YES-price timeline for ${data.eventTitle}. Peak column shows the highest YES price seen in minute-level history within the selected ${selectedWindow?.label ?? "range"} range. Tick any bracket you're selling to keep that full row highlighted. Visible brackets are filtered to ${data.visibleBracketRangeLabel}.`
               : "Hourly YES-price timeline for the selected event. Final shows the resolved payout when the market is closed."}
           </p>
           {winnerOutsideVisibleRange ? (
@@ -550,6 +726,9 @@ export function MarketPriceHistoryTable({
               <th className="market-history-bracket-header" scope="col">
                 Bracket
               </th>
+              <th className="market-history-window-header" scope="col">
+                Peak {selectedWindow?.label ?? ""}
+              </th>
               {hasFinalColumn ? (
                 <th className="market-history-window-header" scope="col">
                   Final
@@ -576,54 +755,91 @@ export function MarketPriceHistoryTable({
                 </td>
               </tr>
             ) : data && data.rows.length > 0 && timelineColumns.length > 0 ? (
-              data.rows.map((row) => (
-                <tr key={row.bracket}>
-                  <th className="market-history-bracket-cell" scope="row" title={row.marketSlug}>
-                    {row.bracket}
-                  </th>
-                  {hasFinalColumn ? (
+              data.rows.map((row) => {
+                const peakPoint = rowPeakPoints.get(row.bracket) ?? null;
+                const peakValue = peakPoint?.pricePct ?? null;
+                const isPeakLeader = peakLeader?.bracket === row.bracket;
+                const isSelected = selectedBrackets.has(row.bracket);
+
+                return (
+                  <tr
+                    key={row.bracket}
+                    className={isSelected ? "market-history-row market-history-row--selected" : "market-history-row"}
+                  >
+                    <th className="market-history-bracket-cell" scope="row" title={row.marketSlug}>
+                      <label className="market-history-bracket-toggle">
+                        <input
+                          checked={isSelected}
+                          className="market-history-bracket-toggle-input"
+                          type="checkbox"
+                          onChange={() => toggleBracketSelection(row.bracket)}
+                          aria-label={`Highlight bracket ${row.bracket}`}
+                        />
+                        <span className="market-history-bracket-toggle-text">{row.bracket}</span>
+                      </label>
+                    </th>
                     <td className="market-history-value-cell">
                       <div
                         className={`market-history-value${
-                          row.finalPricePct !== null && row.finalPricePct >= 100
-                            ? " market-history-value--leader"
-                            : ""
+                          isPeakLeader ? " market-history-value--leader" : ""
                         }`}
                         style={getHistoryCellStyle({
-                          isLeader: row.finalPricePct !== null && row.finalPricePct >= 100,
+                          isLeader: isPeakLeader,
+                          isSelected,
                           max: valueBounds.max,
                           min: valueBounds.min,
-                          value: row.finalPricePct,
+                          value: peakValue,
                         })}
                       >
-                        {formatHistoryValue(row.finalPricePct)}
+                        {formatHistoryValue(peakValue)}
                       </div>
                     </td>
-                  ) : null}
-                  {timelineColumns.map((column, index) => {
-                    const value = getHistoryValueAtOrBefore(row.historyPoints, column.ts);
-                    const isLeader = timelineLeaders[index] === row.bracket;
-
-                    return (
-                      <td key={`${row.bracket}-${column.ts}`} className="market-history-value-cell">
+                    {hasFinalColumn ? (
+                      <td className="market-history-value-cell">
                         <div
                           className={`market-history-value${
-                            isLeader ? " market-history-value--leader" : ""
+                            row.finalPricePct !== null && row.finalPricePct >= 100
+                              ? " market-history-value--leader"
+                              : ""
                           }`}
                           style={getHistoryCellStyle({
-                            isLeader,
+                            isLeader: row.finalPricePct !== null && row.finalPricePct >= 100,
+                            isSelected,
                             max: valueBounds.max,
                             min: valueBounds.min,
-                            value,
+                            value: row.finalPricePct,
                           })}
                         >
-                          {formatHistoryValue(value)}
+                          {formatHistoryValue(row.finalPricePct)}
                         </div>
                       </td>
-                    );
-                  })}
-                </tr>
-              ))
+                    ) : null}
+                    {timelineColumns.map((column, index) => {
+                      const value = getHistoryValueAtOrBefore(row.historyPoints, column.ts);
+                      const isLeader = timelineLeaders[index] === row.bracket;
+
+                      return (
+                        <td key={`${row.bracket}-${column.ts}`} className="market-history-value-cell">
+                          <div
+                            className={`market-history-value${
+                              isLeader ? " market-history-value--leader" : ""
+                            }`}
+                            style={getHistoryCellStyle({
+                              isLeader,
+                              isSelected,
+                              max: valueBounds.max,
+                              min: valueBounds.min,
+                              value,
+                            })}
+                          >
+                            {formatHistoryValue(value)}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })
             ) : (
               <tr>
                 <td className="empty-state" colSpan={colSpan}>
@@ -639,6 +855,7 @@ export function MarketPriceHistoryTable({
                 <th className="market-history-footer-label" scope="row">
                   Leader
                 </th>
+                <td className="market-history-footer-cell">{peakLeader?.bracket ?? "--"}</td>
                 {hasFinalColumn ? (
                   <td className="market-history-footer-cell">{finalLeader ?? "--"}</td>
                 ) : null}
@@ -682,7 +899,8 @@ export function MarketPriceHistoryTable({
                   </div>
                 </div>
                 <p className="market-trend-chart-helper">
-                  All times EDT • Grid end: {timelineColumns[timelineColumns.length - 1]?.label ?? "--"}
+                  All times {HISTORY_TIMEZONE_LABEL} • Grid end:{" "}
+                  {timelineColumns[timelineColumns.length - 1]?.label ?? "--"}
                 </p>
               </div>
 
